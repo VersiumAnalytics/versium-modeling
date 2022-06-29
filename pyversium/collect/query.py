@@ -10,63 +10,69 @@ import pandas as pd
 from aiohttp import ClientSession
 
 from . import response_handlers as rhs
-from .response_handler_map import RESPONSE_HANDLER_MAP
+from .response_handler_map import handler_from_url
 
 logger = logging.getLogger(__name__)
 
+MAX_QUERIES_PER_SECOND = 100
+SUCCESS_IDENTIFIER = "$@&__SUCCESS__&@$"
+
 
 class RateLimiter(object):
-    def __init__(self, calls=5, period=1, n_connections=1):
-        self.calls = calls
+    def __init__(self, *, max_calls=20, period=1, n_connections=100, n_retry=3, retry_wait_time=2):
+        self.max_calls = max_calls
         self.period = period
+        self.n_retry = n_retry
+        self.retry_wait_time = retry_wait_time
         self.clock = time.monotonic
         self.last_reset = 0
         self.num_calls = 0
-        self.num_running = 0
-        self.sem = asyncio.Semaphore(min(n_connections, calls))
+        self.sem = asyncio.Semaphore(n_connections)
 
     def __call__(self, func):
+
         async def wrapper(*args, **kwargs):
-            # Semaphore will block more than {self.calls} calls from happening at once.
+            # Semaphore will block more than {self.n_connections} from happening at once.
+            self.last_reset = self.clock()
             async with self.sem:
-                if self.num_calls + self.num_running >= self.calls:
-                    await asyncio.sleep(self.__period_remaining())
+                # async for allows us to move on to next record instead of looping over the same record consecutively
+                #async for i in async_range(self.n_retry + 1):
+                for i in range(self.n_retry + 1):
+                    while self.num_calls >= self.max_calls:
+                        await asyncio.sleep(self.__period_remaining())
 
-                try:
-                    # self.num_running is effectively a num_call that doesn't expire with the end of the period. This is to prevent us from
-                    # resettting the num_calls when we have active ongoing connections.
-                    self.num_running += 1
-                    # func may make multiple requests, but will do so at most once per second
-                    result = await func(*args, **kwargs)
+                    try:
+                        self.num_calls += 1
+                        result = await func(*args, attempts_left=self.n_retry - i, **kwargs)
+                        return result
 
-                finally:
-                    self.num_running -= 1
-                    # Getting the remaining time and incrementing num_calls after the request causes us to overcount the amount of time since
-                    # the request instead of undercount. Undercounting can lead to the server rejecting due to rate limits.
-                    period_remaining = self.__period_remaining()
-
-                    if period_remaining <= 0:
-                        self.num_calls = 0
-                        self.last_reset = self.clock()
-                    self.num_calls += 1
-
-                return result
+                    # Doesn't matter what the exception is, we will still try again
+                    except:
+                        if self.n_retry - i > 0:
+                            await asyncio.sleep(self.retry_wait_time * i)
+                # Failed to perform the query after n_retry attempts. Return empty response
+                return {}
 
         return wrapper
 
     def __period_remaining(self):
         elapsed = self.clock() - self.last_reset
-        return self.period - elapsed
+        period_remaining = self.period - elapsed
+        if period_remaining <= 0:
+            self.num_calls = 0
+            self.last_reset = self.clock()
+            period_remaining = self.period
+        return max(period_remaining, 0)
 
 
-async def _fetch(session, row, query_params, url, n_retry, wait_time, read_timeout, n_connections, response_handler,
+async def _fetch(session, row, query_params, url, read_timeout, response_handler, headers, attempts_left,
                  **kwargs):
     """Internal fetch method."""
 
     if query_params is None:
         query_params = {}
     row_dict = row._asdict()
-    index = row_dict.pop('Index', )
+
     if response_handler is None or not callable(response_handler):
         response_handler = rhs.default_response_handler
 
@@ -75,40 +81,37 @@ async def _fetch(session, row, query_params, url, n_retry, wait_time, read_timeo
     row_dict = {key: value for key, value in row_dict.items() if value is not np.nan and value is not None}
     params = {**query_params, **row_dict}
 
-    for i in range(n_retry):
-
-        try:
-            # Wait before trying to get again. Make sure we are doing this query at most once per second or we could hit rate limits.
-            await asyncio.sleep(max(wait_time, 1) * i)
-
-            async with session.get(url, params=params, timeout=read_timeout) as response:
-                response.raise_for_status()
-                data = await response.json(content_type=None)
-                data_dict = response_handler(data, url=url, **kwargs)
-                data_dict['__INDEX__'] = index  # Trying to avoid name collisions with 'Index' just in case.
-                return data_dict
-        except:
-            exc = sys.exc_info()[1]
-            logger.error('%s, %d attempts left: %s?%s', exc.__class__.__name__, n_retry - i, url,
-                         urllib.parse.urlencode(params))
+    try:
+        async with session.get(url, params=params, timeout=read_timeout, headers=headers) as response:
+            response.raise_for_status()
+            data = await response.json(content_type=None)
+            data_dict = response_handler(data, url=url, **kwargs)
+            data_dict[SUCCESS_IDENTIFIER] = True
+            return data_dict
+    
+    except Exception as e:
+        exc = sys.exc_info()[1]
+        logger.error('%s, %d attempts left: %s?%s', exc.__class__.__name__, attempts_left, url,
+                     urllib.parse.urlencode(params))
 
     # If cannot get data, return unsuccessful gracefully.
     logger.error('No attempts left: %s?%s', url, urllib.parse.urlencode(query_params))
-    return {'__INDEX__': index}
+    return {SUCCESS_IDENTIFIER: False}
 
 
-async def _create_tasks(rows, query_params, url, *, read_timeout, n_connections, n_retry, wait_time, response_handler,
-                        **kwargs):
+async def _create_tasks(rows, query_params, url, *, read_timeout, n_connections, n_retry, retry_wait_time, response_handler, headers=None,
+                        queries_per_second=20, **kwargs):
     tasks = []
-    # sem = asyncio.Semaphore(n_connections)
-    limit = RateLimiter(n_connections, 1, n_connections)
+    limit = RateLimiter(max_calls=queries_per_second, period=1, n_connections=n_connections, n_retry=n_retry,
+                        retry_wait_time=retry_wait_time)
     limited_fetch = limit(_fetch)
+    
     async with ClientSession(read_timeout=read_timeout) as session:
         for row in rows:
             task = asyncio.ensure_future(
-                limited_fetch(session, row, query_params, url, n_retry, wait_time, read_timeout, n_connections, response_handler, **kwargs))
-            # _fetch(session, row, query_params, url, n_retry, wait_time, read_timeout, n_connections, response_handler, **kwargs))
-            # _bound_fetch(sem, session, row, query_params, url, n_retry, wait_time, read_timeout, n_connections, response_handler, **kwargs))
+                limited_fetch(session=session, row=row, query_params=query_params, url=url, read_timeout=read_timeout,
+                              response_handler=response_handler, headers=headers, **kwargs))
+
             tasks.append(task)
         responses = asyncio.gather(*tasks)
         return await responses
@@ -135,16 +138,12 @@ class QueryClient:
         If n_jobs is a not an integer or less than 1.
     """
 
-    def __init__(self, url, *, params=None, n_retry=3, retry_wait_time=3, read_timeout=10, n_connections=20, mode="batch",
-                 return_json=False,
-                 response_handler=None, required_fields=(), optional_fields=(), field_remap=None, post_append_prefix="",
-                 post_append_suffix=""):
-        logger.debug('An instance of QueryClient is created at %s to query with %d connections', hex(id(self)),
-                     n_connections)
+    def __init__(self, url, *, params=None, headers=None, n_retry=3, retry_wait_time=3, read_timeout=10, n_connections=100,
+                 queries_per_second=20, return_json=False, response_handler=None, required_fields=(), optional_fields=(), field_remap=None,
+                 post_append_prefix="", post_append_suffix=""):
 
         if n_connections < 1 or not isinstance(n_connections, int):
-            raise ValueError('n_connections should be an integer bigger than or equal to 1, given {0}'.format(
-                n_connections))
+            raise ValueError(f"n_connections should be an integer bigger than or equal to 1, given {n_connections}")
 
         if params is None:
             params = dict()
@@ -153,6 +152,7 @@ class QueryClient:
         self.url = url
         self.params = params
         self.n_retry = n_retry
+        self.headers = headers
         self.retry_wait_time = retry_wait_time
         self.read_timeout = read_timeout
         self.n_connections = n_connections
@@ -161,6 +161,10 @@ class QueryClient:
         self.optional_fields = optional_fields
         self.post_append_prefix = post_append_prefix
         self.post_append_suffix = post_append_suffix
+        
+        if queries_per_second > MAX_QUERIES_PER_SECOND:
+            raise ValueError(f"`queries_per_second` set to {queries_per_second}. Maximum allowed: {MAX_QUERIES_PER_SECOND}")
+        self.queries_per_second = queries_per_second
 
         if field_remap is None:
             field_remap = {}
@@ -168,10 +172,7 @@ class QueryClient:
 
         # Set the response handler based on the type of response_handler
         if response_handler is None:
-            # If we don't have response handler, check the RESPONSE_HANDLER_MAP for matching url, fallback to default handler
-            parsed_url = urllib.parse.urlparse(url)
-            netloc_path = parsed_url.netloc + parsed_url.path
-            self.response_handler = RESPONSE_HANDLER_MAP.get(netloc_path, rhs.default_response_handler)
+            self.response_handler = handler_from_url(url)
 
         elif isinstance(response_handler, str):
             # If response_handler is string, try to retrieve the function from the response_handlers module
@@ -196,15 +197,6 @@ class QueryClient:
         data : pandas.DataFrame
             Data to be used in queries.
 
-        url : string
-            Api endpoint to query against
-
-        query_params : dict
-            API parameters to include in the query. These will be the same between calls
-
-        response_handler : callable
-
-        raw_json : bool
         Returns
         -------
         pandas.DataFrame
@@ -219,7 +211,6 @@ class QueryClient:
         if column_subset:
             data = data[column_subset]
 
-        # logger.info('Query configuration parameters are %s', json.dumps(query_params, sort_keys=True))
         # Log which columns are getting renamed.
         renamed_columns = {k: v for k, v in self.field_remap.items() if k in data}
         logger.info(f'Renaming the following columns with their respective mapping: {renamed_columns}')
@@ -227,17 +218,20 @@ class QueryClient:
 
         n_connections = min(len(data), self.n_connections)
 
-        logger.info('Started querying %d records', len(data))
-        start_time = time.time()
+        logger.info(f"Started querying {self.url} with {len(data)} records.")
+        logger.debug(f"HTTP headers are set to {self.headers}")
+        start_time = time.monotonic()
         # TODO allow other index names
         rows = data.itertuples(index=True)
         loop = asyncio.get_event_loop()
         future = asyncio.ensure_future(_create_tasks(rows, self.params, self.url,
+                                                     headers=self.headers,
                                                      read_timeout=self.read_timeout,
                                                      n_retry=self.n_retry,
-                                                     wait_time=self.retry_wait_time,
+                                                     retry_wait_time=self.retry_wait_time,
                                                      n_connections=n_connections,
                                                      response_handler=self.response_handler,
+                                                     queries_per_second=self.queries_per_second,
                                                      raw_json=self.return_json))
         try:
             responses = loop.run_until_complete(future)
@@ -252,11 +246,18 @@ class QueryClient:
         if self.return_json:
             return responses
 
-        results = pd.DataFrame(responses).set_index('__INDEX__')
+        results = pd.DataFrame(responses)
+        end_time = time.monotonic()
 
-        # success_rate = results['__Successful'].mean()
+        success_rate = results[SUCCESS_IDENTIFIER].mean()
+        results.drop(columns=[SUCCESS_IDENTIFIER], inplace=True)
+        
+        query_time = (end_time - start_time)
+        num_results = len(results)
+        actual_queries_per_second = num_results / query_time
 
-        time_per_query = (time.time() - start_time) / len(results) * self.n_connections
+        logger.info(f"Finished querying {num_results} records in {query_time:.1f} seconds with success rate {success_rate:.2%}."
+                    f" Averaged {actual_queries_per_second:.2f} queries per second.")
         # logger.info('Finished querying with {0:4.1%} success rate and average time per query of {1:.3f} seconds'.format(
         #    success_rate, time_per_query))
         results.columns = [self.post_append_prefix + c + self.post_append_suffix for c in results.columns]

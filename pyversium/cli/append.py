@@ -120,7 +120,6 @@ def get_parser(defaults=None):
 def collector_factory(config: dict) -> Collector:
     api_queries = []
     query_configs = config.pop('query_configs', [])
-    print("QUERY CONFIGS", query_configs)
     for q_cfg in query_configs:
         if 'url' not in q_cfg:
             raise ValueError('Each query config must have an api endpoint defined by `url`')

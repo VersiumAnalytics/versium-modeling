@@ -163,6 +163,58 @@ Below is an example of a config file utilizing the `score` and `train` subcomman
 }
 ```
 
+### Append Config
+When using the `append` CLI, you can provide a series of query configurations to perform data appends in succession.
+```json
+{
+  "query_configs": [
+    {
+      "url": "http://api.versium.com/v2/b2cOnlineAudience",
+      "queries_per_second": 20,
+      "n_connections": 100,
+      "n_retry": 3,
+      "retry_wait_time": 3,
+      "timeout": 10,
+      "params": {
+        "cfg_maxrecs": 1
+      },
+      "headers": {
+        "Accept": "application/json",
+        "x-versium-api-key": "abcdefg-123456789-hijklmn"
+      },
+      "required_fields": [
+        "firstname",
+        "lastname",
+        "address"
+      ],
+      "optional_fields": [
+        "zip",
+        "state",
+        "city"
+      ],
+      "field_remap": {
+        "firstname": "first",
+        "lastname": "last"
+      },
+      "post_append_prefix": "Versium_",
+      "post_append_suffix": "",
+      "response_handler": "api2b_versium_com_q2"
+    },
+    {
+      "url": "http://append.mylistgensite.com/append",
+      "params": {
+        "api_key":"123456789",
+        "param2": "something"
+      },
+      "required_fields": [
+        "email",
+        "phone"
+      ]
+    }
+  ]
+}
+```
+
 ### Output Files
 Output files can be given special formatting to control their naming. When the name of an output file contains `$@`, these
 characters will be substituted with the basename of the input file minus the extension. For example:
@@ -180,3 +232,34 @@ Then the output of the program will be written to:
 ```
 path/to/output/my_file_appended.txt
 ```
+
+When using the **_--chunksize_** option it is possible to split output into multiple files rather than one large file. In this 
+case, you can specify a format string within the output filename that controls the numbering of files. The format string
+takes the form `{START_IDX:FORMAT_SPEC}` where _**START_IDX**_ denotes the start of numbering and **_FORMAT_SPEC_**
+is the Python format specification mini-language 
+(see [python documentation](https://docs.python.org/3/library/string.html#format-specification-mini-language)).
+
+For example, to start numbering at 2 with zero-padding to 3 places we could do:
+```
+path/to/output_file_{2:03d}.txt
+```
+
+
+#### Query Config Params
+* __url__: API endpoint for the query
+* __queries_per_second__: Maximum number of queries per second.
+* __n_connections__: Maximum number of simultaneous connections while querying.
+* __n_retry__: Number of times to retry a query if it fails
+* __retry_wait_time__: Number of seconds to wait before retrying a query. This scales with the number of attempts. For example, if 
+set to 3 the wait times for each attempt will be 0, 3, 6, 9, etc.
+* __timeout__: Number of seconds to wait for a response before timing out.
+* __params__: Additional parameters to include with each request.
+* __header__: HTTP header to pass with each request.
+* __required_fields__: Data fields that are required to be present. If a record is missing one of these fields, it will not be appended. 
+* __optional_fields__: Data fields that are not required to be present but will be included in the request if available.
+* __field_remap__: Mapping of field names found in the input to parameter names expected by the API.
+* __post_append_prefix__: Prefixes all fields returned by the API with a string. 
+* __post_append_suffix__: Suffixes all fields returned by the API with a string.
+* __response_handler__: Name of function to call to handle the response from the API. Custom response handler functions
+can be added to *pyversium.collect.response_handlers* to extract data from the response.
+
