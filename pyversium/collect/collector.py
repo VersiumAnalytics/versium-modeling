@@ -165,7 +165,7 @@ def _chunked_read(filepath_or_buffer: str, delimiter: str,
         total_rows += chunksize
 
 
-def balance_class_fillrates(data, label_column: str, balance_fields: list[str], missing_values: list[str] = STR_NA_VALUES,
+def balance_class_fillrates(data, label_column: str, label_positive_value: Any, balance_fields: list[str], missing_values: list[str] = STR_NA_VALUES,
                             balance_diff_tol=0.1):
     """
     Balance columns by randomly setting values to NaN.
@@ -174,6 +174,7 @@ def balance_class_fillrates(data, label_column: str, balance_fields: list[str], 
     -------
     data :
     label_column :
+    label_positive_value :
     balance_fields :
     missing_values :
     balance_diff_tol :
@@ -191,26 +192,26 @@ def balance_class_fillrates(data, label_column: str, balance_fields: list[str], 
     rnd = random.SystemRandom()
 
     # Get the label column as the condition.
-    condition = data[label_column]
+    condition = data[label_column] == label_positive_value
 
     balanced_columns = []
 
     # Go over all columns that are set for balancing.
     for balance_column_name in balance_fields:
 
-        logger.info(f'Column {balance_column_name} is marked for balancing')
+        logger.info(f"Column {balance_column_name} is marked for balancing")
 
         if balance_column_name not in data.columns:
-            logger.warning(f'Column {balance_column_name} is marked for balancing but it is not in existing columns')
+            logger.warning(f"Column {balance_column_name} is marked for balancing but it is not in existing columns")
             continue
 
         # Calculate the fill ratios to check fill imbalance.
-        positive_fill_ratio = (~data[balance_column_name][condition].isin(missing_values)).mean()
-        negative_fill_ratio = (~data[balance_column_name][~condition].isin(missing_values)).mean()
+        positive_fill_ratio = data[balance_column_name][condition].notna().mean()
+        negative_fill_ratio = data[balance_column_name][~condition].notna().mean()
 
         logger.info(
-            f'Column {balance_column_name:s} has a positive fill ratio of {positive_fill_ratio:.2f}'
-            f'and negative fill ratio of {negative_fill_ratio:.2f}')
+            f"Column {balance_column_name:s} has a positive fill ratio of {positive_fill_ratio:.2f}"
+            f" and negative fill ratio of {negative_fill_ratio:.2f}")
 
         if balance_diff_tol is not None and (abs(positive_fill_ratio - negative_fill_ratio) > balance_diff_tol):
 
@@ -287,6 +288,7 @@ class Collector:
                  api_queries: Optional[list[QueryClient]] = (),
                  label: Optional[str] = None,
                  label_positive_value: Optional[int | str] = None,
+                 correct_label_field=True,
                  consolidate_missing=True):
 
         # Pre-process attributes.
@@ -297,6 +299,7 @@ class Collector:
         self.api_queries = api_queries
         self.label = label
         self.label_positive_value = label_positive_value
+        self.correct_label_field = correct_label_field
         self.consolidate_missing = consolidate_missing
 
     def append(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -352,10 +355,6 @@ class Collector:
             Size of chunking to perform on file. If 0 or None, the entire file is read. Otherwise, the file is read in chunks and
             a dataframe generator is returned.
 
-        extra_columns : list(str), optional
-            Additional columns to return from input file. These columns do not require column definitions and will not
-            be checked for in subsequent file reads.
-
         safe : bool
             Tries to safely decode the data, falling back to ascii decoding if Unicode fails. This also works with chunking
             when the first half of the file properly Unicode encoded but the later half is not. When chunking, this may incur
@@ -384,7 +383,6 @@ class Collector:
             if not self.label:
                 raise ValueError("`has_label` argument set to True, but no `label` had been set for this instance of"
                                  f" {self.__class__.__name__}")
-            data = map_if_iter(self.correct_label_column, data)
 
             # We can only balance columns if we are not reading in chunks.
             if isinstance(data, pd.DataFrame):
@@ -392,14 +390,16 @@ class Collector:
                     if b not in data:
                         raise ValueError(f'Column {b} was selected for balancing but was not found in the data.')
 
-                data = balance_class_fillrates(data, self.label, self.balance_fields, missing_values=self.missing_values,
-                                               balance_diff_tol=0.1)
+                data = balance_class_fillrates(data, self.label, self.label_positive_value, self.balance_fields,
+                                               missing_values=self.missing_values, balance_diff_tol=0.1)
+            if self.correct_label_field:
+                data = map_if_iter(self._booleanize_label, data)
 
         data = map_if_iter(self.append, data)
 
         return data
 
-    def correct_label_column(self, data: pd.DataFrame) -> pd.DataFrame:
+    def _booleanize_label(self, data: pd.DataFrame) -> pd.DataFrame:
         """
         Correct binary labels from their own values to 0 and 1.
 
@@ -425,7 +425,7 @@ class Collector:
             data[self.label] = corrected_label_column
 
             logger.info(
-                f'Label column {self.label} positive value is corrected from {self.label_positive_value} to 1'
+                f'Label column {self.label} positive value is corrected from {self.label_positive_value} to True.'
             )
 
         return data

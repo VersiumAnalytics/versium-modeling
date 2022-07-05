@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 MAX_QUERIES_PER_SECOND = 100
 SUCCESS_IDENTIFIER = "$@&__SUCCESS__&@$"
+INDEX_IDENTIFIER = "$@&__INDEX__&@$"
 
 
 class RateLimiter(object):
@@ -51,7 +52,7 @@ class RateLimiter(object):
                         if self.n_retry - i > 0:
                             await asyncio.sleep(self.retry_wait_time * i)
                 # Failed to perform the query after n_retry attempts. Return empty response
-                return {}
+                return {SUCCESS_IDENTIFIER: False}
 
         return wrapper
 
@@ -68,10 +69,10 @@ class RateLimiter(object):
 async def _fetch(session, row, query_params, url, read_timeout, response_handler, headers, attempts_left,
                  **kwargs):
     """Internal fetch method."""
-
     if query_params is None:
         query_params = {}
     row_dict = row._asdict()
+    idx = row_dict.pop(INDEX_IDENTIFIER, None)
 
     if response_handler is None or not callable(response_handler):
         response_handler = rhs.default_response_handler
@@ -85,18 +86,18 @@ async def _fetch(session, row, query_params, url, read_timeout, response_handler
         async with session.get(url, params=params, timeout=read_timeout, headers=headers) as response:
             response.raise_for_status()
             data = await response.json(content_type=None)
+
+            if data is None:
+                raise ValueError("Nothing returned in response")
+
             data_dict = response_handler(data, url=url, **kwargs)
             data_dict[SUCCESS_IDENTIFIER] = True
             return data_dict
-    
-    except Exception as e:
-        exc = sys.exc_info()[1]
-        logger.error('%s, %d attempts left: %s?%s', exc.__class__.__name__, attempts_left, url,
-                     urllib.parse.urlencode(params))
 
-    # If cannot get data, return unsuccessful gracefully.
-    logger.error('No attempts left: %s?%s', url, urllib.parse.urlencode(query_params))
-    return {SUCCESS_IDENTIFIER: False}
+    except Exception as e:
+        logger.error(f"Error during url fetch: {e}\nIndex: {idx}\nURL: {url}?{urllib.parse.urlencode(params)}"
+                     f"\nResponse Status: {response.status}\nAttempts Left: {attempts_left:d}")
+        raise
 
 
 async def _create_tasks(rows, query_params, url, *, read_timeout, n_connections, n_retry, retry_wait_time, response_handler, headers=None,
@@ -143,7 +144,7 @@ class QueryClient:
                  post_append_prefix="", post_append_suffix=""):
 
         if n_connections < 1 or not isinstance(n_connections, int):
-            raise ValueError(f"n_connections should be an integer bigger than or equal to 1, given {n_connections}")
+            raise ValueError(f"n_connections should be an integer greater than or equal to 1, given {n_connections}")
 
         if params is None:
             params = dict()
@@ -216,12 +217,15 @@ class QueryClient:
         logger.info(f'Renaming the following columns with their respective mapping: {renamed_columns}')
         data = data.rename(columns=renamed_columns)
 
+        # Change index name so it does not
+        index_name = data.index.name
+        data.index.name = INDEX_IDENTIFIER
         n_connections = min(len(data), self.n_connections)
 
         logger.info(f"Started querying {self.url} with {len(data)} records.")
         logger.debug(f"HTTP headers are set to {self.headers}")
         start_time = time.monotonic()
-        # TODO allow other index names
+
         rows = data.itertuples(index=True)
         loop = asyncio.get_event_loop()
         future = asyncio.ensure_future(_create_tasks(rows, self.params, self.url,
@@ -247,6 +251,7 @@ class QueryClient:
             return responses
 
         results = pd.DataFrame(responses)
+        results.index.name = index_name # Set index name back to
         end_time = time.monotonic()
 
         success_rate = results[SUCCESS_IDENTIFIER].mean()

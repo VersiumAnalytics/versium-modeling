@@ -20,54 +20,6 @@ logging.basicConfig()
 logger = logging.getLogger('pyversium.__main__(append)' if __name__ == '__main__' else __name__)
 
 
-def get_parser_orig():
-    parser = argparse.ArgumentParser(add_help=True)
-
-    # Options needed for file reading and writing
-    parser.add_argument('-i', '--input', action='store', type=str)
-    parser.add_argument('-o', '--output', action='store', type=str, default=None,
-                        help='File to write output results to. Defaults to stdout. If the --write-chunksize argument is used, then'
-                             'numbering of files can be controlled by specifying the path in the format "my_dir/my_file_{005}.txt'
-                             'where the number of digits signifies zero-padding and the number itself indicates what number to start at.'
-                             'If --input-file is provided, you can use $@ to have the input filename injected into the output file name'
-                             '(e.g. my_output_dir/$@_appended_{000}.txt)')
-
-    # CLI only arguments
-    parser.add_argument('-t', '--train', action='store_true', help='Indicates this data is for training a _model and should be handled'
-                                                                   'appropriately.')
-
-    parser.add_argument('--train-input', action='store', type=str, default=None,
-                        help='Same as --input, but this will be used instead when the --train option is used. Falls back to'
-                             '--input if not provided. Used to help avoid mixing training and scoring data accidentally.')
-
-    parser.add_argument('--train-output', action='store', type=str, default=None,
-                        help='Same as --output, but this will be used instead when the --train option is used. Falls back to'
-                             '--output if not provided. Used to help avoid mixing training and scoring data accidentally.')
-
-    # Additional program arguments
-    parser.add_argument('-c', '--config', action='store', type=str, default=None, metavar='CONFIG FILE',
-                        help='Path to configuration file.')
-
-    parser_add_log_options(parser)
-    parser_add_collector_options(parser)
-
-    # parser.add_argument('--resume', action='store', type=int, metavar='CHUNK', help='Resume appending from CHUNK. File chunks are enumerated starting at index 0.')
-    parser.add_argument('--overwrite', action='store_true',
-                        help='Force overwriting of files if a file already exists. By default, if file already exists, then numbers will be'
-                             'added to the filename to give it a unique name.')
-
-    epilog_text = textwrap.dedent('''
-        Balancing Columns:
-            If we intend to use our appended data for modeling purposes, then we need to avoid introducing data leakage into our training data.
-            This can be particularly problematic when we have converter/non-converter as the positive and negative class in our data. A common
-            issue is that we will have more accurate or more complete information for converters vs non-converters, resulting in better append fill rates
-            for the positive class. This results in data leakage and poor _model performance since most supervised learning algorithms will pick up on this
-            pattern instead of the true underlying signal that we wish to _model against.
-    ''')
-
-    return ParserCollection(parser)
-
-
 def get_parser(defaults=None):
     # Parse options common to all subparsers
     global_parser = argparse.ArgumentParser(add_help=False)
@@ -136,7 +88,9 @@ def collector_factory(config: dict) -> Collector:
                      missing_values=config['missing_values'],
                      required_fields=config['required_fields'],
                      label=config['label'],
+                     balance_fields=config['balance_fields'],
                      label_positive_value=config['label_positive_value'],
+                     correct_label_field=False,
                      consolidate_missing=True)
 
 
