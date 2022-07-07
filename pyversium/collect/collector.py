@@ -379,6 +379,8 @@ class Collector:
             data = self.read(filepath_buffer_or_dataframe, delimiter=delimiter, chunksize=chunksize,
                              header=header, safe=safe, na_values=self.missing_values)
 
+        map_if_iter(self._check_required_fields, data)
+
         if has_label:
             if not self.label:
                 raise ValueError("`has_label` argument set to True, but no `label` had been set for this instance of"
@@ -429,6 +431,11 @@ class Collector:
             )
 
         return data
+
+    def _check_required_fields(self, data):
+        missing_fields = set(self.required_fields) - set(data.columns.values)
+        if missing_fields:
+            raise RuntimeError(f"Data is missing required fields: {list(missing_fields)}.")
 
     @staticmethod
     def read(filepath_or_buffer: str | io.TextIOBase,

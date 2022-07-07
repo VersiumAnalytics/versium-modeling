@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from typing import Optional
 
 import numpy as np
 
@@ -10,6 +11,35 @@ LOG_FORMATS = {'CRITICAL': '%(asctime)s - %(message)s',
                    'INFO': '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                    'DEBUG': '[%(asctime)s - %(name)30s - %(filename)15s:%(lineno)5s - %(funcName)20s() - %(levelname)8s] - %(message)s',
                    'NOTSET': '%(asctime)s - %(name)s - %(levelname)s - %(message)s', }
+
+
+class MultiFilter:
+    """Filter LogRecords.
+
+    Allows multiple criteria for allowing events through the filter.
+
+    For each criterion, the filter will admit records which are below a certain point in the logger hierarchy. A record's name must start with
+    the criterion string to be admitted.
+    """
+
+    def __init__(self, name: Optional[str | list[str]] = None):
+        """
+        Initialize a filter.
+
+        Initialize with the name of the logger which, together with its
+        children, will have its events allowed through the filter. If no
+        name is specified, allow every event.
+        """
+        if name is None:
+            name = ""
+
+        if isinstance(name, str):
+            name = [name]
+
+        self.name = name
+
+    def filter(self, record):
+        return any(filter(lambda x: record.name.startswith(x), self.name))
 
 
 def setup_logging(*, logger=None, level='INFO', log_file=None, packages=['pyversium'], file_mode='a+'):
@@ -46,7 +76,8 @@ def setup_logging(*, logger=None, level='INFO', log_file=None, packages=['pyvers
 
     fh = None
     for lf in log_file:
-        os.makedirs(os.path.dirname(lf), exist_ok=True)
+        if os.path.dirname(lf):
+            os.makedirs(os.path.dirname(lf), exist_ok=True)
         fh = logging.FileHandler(lf, mode=file_mode)
         fh.setFormatter(formatter)
         for filt in filters:

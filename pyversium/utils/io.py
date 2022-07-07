@@ -211,7 +211,8 @@ class OutputFileGenerator:
             output_file, start_idx = get_output_file_format(filename_or_pattern, input_file)
 
             # Make all non-existing directories on the path to output_file
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            if os.path.dirname(output_file):
+                os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
         self.start_idx = start_idx
         self.current = start_idx

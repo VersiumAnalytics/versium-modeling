@@ -139,7 +139,7 @@ class QueryClient:
         If n_jobs is a not an integer or less than 1.
     """
 
-    def __init__(self, url, *, params=None, headers=None, n_retry=3, retry_wait_time=3, read_timeout=10, n_connections=100,
+    def __init__(self, url, *, params=None, headers=None, n_retry=3, retry_wait_time=3, timeout=10, n_connections=100,
                  queries_per_second=20, return_json=False, response_handler=None, required_fields=(), optional_fields=(), field_remap=None,
                  post_append_prefix="", post_append_suffix=""):
 
@@ -155,7 +155,7 @@ class QueryClient:
         self.n_retry = n_retry
         self.headers = headers
         self.retry_wait_time = retry_wait_time
-        self.read_timeout = read_timeout
+        self.timeout = timeout
         self.n_connections = n_connections
         self.return_json = return_json
         self.required_fields = required_fields
@@ -230,7 +230,7 @@ class QueryClient:
         loop = asyncio.get_event_loop()
         future = asyncio.ensure_future(_create_tasks(rows, self.params, self.url,
                                                      headers=self.headers,
-                                                     read_timeout=self.read_timeout,
+                                                     read_timeout=self.timeout,
                                                      n_retry=self.n_retry,
                                                      retry_wait_time=self.retry_wait_time,
                                                      n_connections=n_connections,

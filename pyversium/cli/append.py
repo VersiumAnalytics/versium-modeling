@@ -10,8 +10,7 @@ import pandas as pd
 from .parsing import parser_add_log_options, parser_add_collector_options, get_config, ParserCollection
 from .schema import APPEND_CONFIG_SCHEMA_PATH
 from ..collect import Collector, QueryClient
-from ..utils import OutputFileGenerator
-from ..utils import setup_logging
+from ..utils import OutputFileGenerator, setup_logging, filter_params
 
 DEFAULT_CONFIG = {'query_configs': ()}
 
@@ -77,6 +76,9 @@ def collector_factory(config: dict) -> Collector:
             raise ValueError('Each query config must have an api endpoint defined by `url`')
         else:
             url = q_cfg.pop('url')
+        q_cfg_filtered = filter_params(q_cfg, QueryClient)
+        if len(q_cfg_filtered) != len(q_cfg):
+            raise ValueError(f"Unknown query configurations given: {set(q_cfg) - set(q_cfg_filtered)}")
         api_queries.append(QueryClient(url, **q_cfg))
 
     # Need balance_diff_tol to be a float instead of None for the constructor

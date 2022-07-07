@@ -48,14 +48,14 @@ def get_parser(defaults=None):
     # Create subparsers
     subparsers = parser.add_subparsers(dest="cmd", required=True)
 
-    score_parser = subparsers.add_parser("score", parents=[global_parser], add_help=True)
-
     # Train subparser and options
     train_parser = subparsers.add_parser("train", parents=[global_parser], add_help=True,
-                                         help="Train a _model")
+                                         help="Train a model")
+
+    score_parser = subparsers.add_parser("score", parents=[global_parser], add_help=True, help="Score a file using a trained model.")
 
     train_parser.add_argument("--include-columns", action="store", type=str, nargs="*", default=[],
-                              help="Columns to include as features. If provided, only columns in this list will be used.")
+                              help="Columns to include as features (whitespace delimited). If provided, only columns in this list will be used.")
 
     train_parser.add_argument("--exclude-columns", action="store", type=str, nargs="*", default=[],
                               help="Columns to exclude as features. If provided, matching columns will not be used in modeling.")
@@ -117,7 +117,7 @@ def train(config):
         raise ValueError("No `input` provided via the command line nor a config file.")
 
     collector = Collector(missing_values=config.get('missing_values', None),
-                          # required_fields=config['required_fields'],
+                          required_fields=config.get('required_fields', []),
                           label=config['label'],
                           label_positive_value=config['label_positive_value'],
                           consolidate_missing=True)

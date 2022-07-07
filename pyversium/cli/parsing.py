@@ -85,7 +85,7 @@ def parser_add_log_options(parser):
     # Logging options
     parser.add_argument("--log-level", action="store", type=str, choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
                         default="ERROR", help="Level for logging.")
-    parser.add_argument("--log-file", action="store", type=str, default=sys.stderr, help="File to write logs to.")
+    parser.add_argument("--log-file", action="store", type=str, default=None, help="File to write logs to.")
     parser.add_argument("--log-packages", action="store", nargs="*", type=str, default=[],
                         help="Additional packages you want to log (e.g. numpy, pandas, sklearn)")
     parser.add_argument("--overwrite-logs", action="store_true", help="Overwrite the log files instead of appending")
@@ -96,7 +96,7 @@ def parser_add_collector_options(parser, base=True, chunk=True, label=True, bala
     if base:
         parser.add_argument('--header', type=str, default=None,
                             help="Path to header file, if there is one. Don't include this if your file already has a header.")
-        parser.add_argument('-d', '--delimiter', action='store', type=str, default=None)
+        parser.add_argument('-d', '--delimiter', action='store', type=str, default=",", help="Column separator for input and output.")
         parser.add_argument('--required-fields', nargs='*', action='store', type=str, default=None,
                             help='Columns that are required to be present when reading in the data. This helps catch errors early on before appending data.')
         parser.add_argument('--missing-values', nargs='*', action='store', type=str,

@@ -1,8 +1,10 @@
 # Installation
 
 ## Installing Python
-You will need Python version 3.10 or greater to run this package. This version was chosen for its better support for type hints.
+You will need Python version 3.10. This version was chosen for its better support for type hints.
 If you wish to use an earlier version of Python, you will need to remove the offending type hints.
+
+You may be able to use a Python version higher than 
 
 ### Binary Download
 Various binaries for different operating systems are available at https://www.python.org/downloads/.
@@ -39,13 +41,18 @@ brew install python@3.10
 ```
 
 You will need to have this at the beginning of your PATH. For the purposes of setup, you only need to do this for this session.
-Check the output from `brew install` for the correct path to the newly installed Python version and add it to your PATH
+Check the output from `brew install` for the correct path to the newly installed Python version and add it to your PATH.
+Alternatively you can run the following to get the path to the installation:
 ```bash
-exportPathCMD='export PATH="/usr/local/opt/python@3.10/bin:$PATH"'
+brew list @python3.10
+```
+Now change your ***PATH*** to point to the installation.
+```bash
+exportPathCMD='export PATH="/usr/local/Cellar/python@3.10/3.10.4/bin/:$PATH"'
 eval $exportPathCMD
 ```
 
-If you want to always use this version of Python for new sessions, run:
+If you want to always use this version of Python for all new sessions, run:
 ```bash
 echo $exportPathCMD >> ~/.bash_profile
 ```
@@ -62,12 +69,12 @@ See the section [Binary Download](#binary-download). This is the preferred way t
 Navigate to the desired working directory and clone the git repo.
 `cd` into the newly cloned directory.
 ```bash
-git clone git@github.com:mattbaumgartner/pyVersium.git
+git clone https://github.com/VersiumAnalytics/pyVersium.git
 cd PyVersium
 ```
 
 ## Setting Up The Virtual Environment
-If you followed the directions above, you should see that your Python 3 version is 3.9 or greater.
+If you followed the directions above, you should see that your Python 3 version is 3.10.
 If not you may have to adjust your _$PATH_ variable to point to the correct version. The instructions below are for Mac/Linux.
 For detailed instructions on using virtual environments on Windows, see
 [this page](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/).
@@ -215,6 +222,25 @@ When using the `append` CLI, you can provide a series of query configurations to
 }
 ```
 
+#### Query Config Params
+* __url__: API endpoint for the query
+* __queries_per_second__: Maximum number of queries per second.
+* __n_connections__: Maximum number of simultaneous connections while querying.
+* __n_retry__: Number of times to retry a query if it fails
+* __retry_wait_time__: Number of seconds to wait before retrying a query. This scales with the number of attempts. For example, if 
+set to 3 the wait times for each attempt will be 0, 3, 6, 9, etc.
+* __timeout__: Number of seconds to wait for a response before timing out.
+* __params__: Additional parameters to include with each request.
+* __header__: HTTP header to pass with each request.
+* __required_fields__: Data fields that are required to be present. If a record is missing one of these fields, it will not be appended. 
+* __optional_fields__: Data fields that are not required to be present but will be included in the request if available.
+* __field_remap__: Mapping of field names found in the input to parameter names expected by the API.
+* __post_append_prefix__: Prefixes all fields returned by the API with a string. 
+* __post_append_suffix__: Suffixes all fields returned by the API with a string.
+* __response_handler__: Name of function to call to handle the response from the API. Custom response handler functions
+can be added to *pyversium.collect.response_handlers* to extract data from the response.
+
+
 ### Output Files
 Output files can be given special formatting to control their naming. When the name of an output file contains `$@`, these
 characters will be substituted with the basename of the input file minus the extension. For example:
@@ -243,23 +269,3 @@ For example, to start numbering at 2 with zero-padding to 3 places we could do:
 ```
 path/to/output_file_{2:03d}.txt
 ```
-
-
-#### Query Config Params
-* __url__: API endpoint for the query
-* __queries_per_second__: Maximum number of queries per second.
-* __n_connections__: Maximum number of simultaneous connections while querying.
-* __n_retry__: Number of times to retry a query if it fails
-* __retry_wait_time__: Number of seconds to wait before retrying a query. This scales with the number of attempts. For example, if 
-set to 3 the wait times for each attempt will be 0, 3, 6, 9, etc.
-* __timeout__: Number of seconds to wait for a response before timing out.
-* __params__: Additional parameters to include with each request.
-* __header__: HTTP header to pass with each request.
-* __required_fields__: Data fields that are required to be present. If a record is missing one of these fields, it will not be appended. 
-* __optional_fields__: Data fields that are not required to be present but will be included in the request if available.
-* __field_remap__: Mapping of field names found in the input to parameter names expected by the API.
-* __post_append_prefix__: Prefixes all fields returned by the API with a string. 
-* __post_append_suffix__: Suffixes all fields returned by the API with a string.
-* __response_handler__: Name of function to call to handle the response from the API. Custom response handler functions
-can be added to *pyversium.collect.response_handlers* to extract data from the response.
-
