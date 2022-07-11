@@ -147,7 +147,7 @@ class ModelPaths:
         return self.model_folder == other.model_folder
 
 
-def get_output_file_format(output_file: str, input_file: str) -> (str, int):
+def format_output_file(output_file: str, input_file: str) -> (str, int):
 
     if input_file:
         # Split input file path into parts
@@ -208,7 +208,7 @@ class OutputFileGenerator:
 
         if isinstance(filename_or_pattern, str):
             self.format_output = True
-            output_file, start_idx = get_output_file_format(filename_or_pattern, input_file)
+            output_file, start_idx = format_output_file(filename_or_pattern, input_file)
 
             # Make all non-existing directories on the path to output_file
             if os.path.dirname(output_file):

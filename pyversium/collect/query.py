@@ -1,8 +1,8 @@
 """qclient.py: Includes a class to query APIs asynchronously."""
 import asyncio
 import logging
-import sys
 import time
+import uuid
 import urllib
 
 import numpy as np
@@ -15,8 +15,14 @@ from .response_handler_map import handler_from_url
 logger = logging.getLogger(__name__)
 
 MAX_QUERIES_PER_SECOND = 100
-SUCCESS_IDENTIFIER = "$@&__SUCCESS__&@$"
-INDEX_IDENTIFIER = "$@&__INDEX__&@$"
+
+# Make unique identifiers for success and index that won't collide with input or returned field names
+SUCCESS_IDENTIFIER = "$@&__SUCCESS_" + str(uuid.uuid4()) + "__&@$"
+INDEX_IDENTIFIER = "$@&__INDEX_" + str(uuid.uuid4()) + "__&@$"
+
+
+class QueryError(RuntimeError):
+    pass
 
 
 class RateLimiter(object):
@@ -47,8 +53,7 @@ class RateLimiter(object):
                         result = await func(*args, attempts_left=self.n_retry - i, **kwargs)
                         return result
 
-                    # Doesn't matter what the exception is, we will still try again
-                    except:
+                    except QueryError:
                         if self.n_retry - i > 0:
                             await asyncio.sleep(self.retry_wait_time * i)
                 # Failed to perform the query after n_retry attempts. Return empty response
@@ -66,27 +71,31 @@ class RateLimiter(object):
         return max(period_remaining, 0)
 
 
-async def _fetch(session, row, query_params, url, read_timeout, response_handler, headers, attempts_left,
+async def _fetch(session, row, query_params, url, timeout, response_handler, headers, attempts_left, required_fields=None,
                  **kwargs):
     """Internal fetch method."""
     if query_params is None:
         query_params = {}
-    row_dict = row._asdict()
+    row_dict = {key: value for key, value in row.items() if value is not np.nan and value is not None}
     idx = row_dict.pop(INDEX_IDENTIFIER, None)
 
     if response_handler is None or not callable(response_handler):
         response_handler = rhs.default_response_handler
 
-    # Clean row_dict.
-    # row_dict = {key: value for key, value in row_dict.items() if value not in UNKNOWN_VALUES}
-    row_dict = {key: value for key, value in row_dict.items() if value is not np.nan and value is not None}
+    # Check if missing required fields
+    if required_fields is not None:
+        missing_required_fields = required_fields - set(row_dict)
+        if missing_required_fields:
+            logger.debug(f"Missing required fields: {missing_required_fields}\n\tIndex: {idx}\n\tRecord: {row_dict}")
+            return {SUCCESS_IDENTIFIER: False}
+
     params = {**query_params, **row_dict}
+    response = None
 
     try:
-        async with session.get(url, params=params, timeout=read_timeout, headers=headers) as response:
+        async with session.get(url, params=params, timeout=timeout, headers=headers) as response:
             response.raise_for_status()
             data = await response.json(content_type=None)
-
             if data is None:
                 raise ValueError("Nothing returned in response")
 
@@ -95,22 +104,25 @@ async def _fetch(session, row, query_params, url, read_timeout, response_handler
             return data_dict
 
     except Exception as e:
+        status = getattr(response, "status", "UNKNOWN")
         logger.error(f"Error during url fetch: {e}\nIndex: {idx}\nURL: {url}?{urllib.parse.urlencode(params)}"
-                     f"\nResponse Status: {response.status}\nAttempts Left: {attempts_left:d}")
-        raise
+                     f"\nResponse Status: {status}\nAttempts Left: {attempts_left:d}")
+
+        # Use a different error class so that we only catch errors from making the http request
+        raise QueryError("Failed to fetch url.")
 
 
-async def _create_tasks(rows, query_params, url, *, read_timeout, n_connections, n_retry, retry_wait_time, response_handler, headers=None,
+async def _create_tasks(rows, query_params, url, *, timeout, n_connections, n_retry, retry_wait_time, response_handler, headers=None,
                         queries_per_second=20, **kwargs):
     tasks = []
     limit = RateLimiter(max_calls=queries_per_second, period=1, n_connections=n_connections, n_retry=n_retry,
                         retry_wait_time=retry_wait_time)
     limited_fetch = limit(_fetch)
     
-    async with ClientSession(read_timeout=read_timeout) as session:
+    async with ClientSession(read_timeout=timeout) as session:
         for row in rows:
             task = asyncio.ensure_future(
-                limited_fetch(session=session, row=row, query_params=query_params, url=url, read_timeout=read_timeout,
+                limited_fetch(session=session, row=row, query_params=query_params, url=url, timeout=timeout,
                               response_handler=response_handler, headers=headers, **kwargs))
 
             tasks.append(task)
@@ -140,7 +152,7 @@ class QueryClient:
     """
 
     def __init__(self, url, *, params=None, headers=None, n_retry=3, retry_wait_time=3, timeout=10, n_connections=100,
-                 queries_per_second=20, return_json=False, response_handler=None, required_fields=(), optional_fields=(), field_remap=None,
+                 queries_per_second=20, return_json=False, response_handler=None, required_fields=None, optional_fields=None, field_remap=None,
                  post_append_prefix="", post_append_suffix=""):
 
         if n_connections < 1 or not isinstance(n_connections, int):
@@ -166,6 +178,17 @@ class QueryClient:
         if queries_per_second > MAX_QUERIES_PER_SECOND:
             raise ValueError(f"`queries_per_second` set to {queries_per_second}. Maximum allowed: {MAX_QUERIES_PER_SECOND}")
         self.queries_per_second = queries_per_second
+
+        # Correct required and optional fields
+        if self.required_fields is None:
+            self.required_fields = []
+        elif isinstance(self.required_fields, str):
+            self.required_fields = [self.required_fields]
+
+        if self.optional_fields is None:
+            self.optional_fields = []
+        elif isinstance(self.optional_fields, str):
+            self.optional_fields = [self.optional_fields]
 
         if field_remap is None:
             field_remap = {}
@@ -205,7 +228,7 @@ class QueryClient:
         """
         missing_required_columns = set(self.required_fields) - set(data.columns)
         if missing_required_columns:
-            raise ValueError(f"Missing required columns {missing_required_columns} after when querying {self.url}")
+            raise ValueError(f"Missing required columns {missing_required_columns} when querying {self.url}")
 
         # If required_fields or optional_fields are provided, then subset the data. Otherwise use all columns
         column_subset = self.required_fields + self.optional_fields
@@ -214,29 +237,38 @@ class QueryClient:
 
         # Log which columns are getting renamed.
         renamed_columns = {k: v for k, v in self.field_remap.items() if k in data}
-        logger.info(f'Renaming the following columns with their respective mapping: {renamed_columns}')
+        logger.info(f'Renaming the following fields with their respective mapping: {renamed_columns}')
         data = data.rename(columns=renamed_columns)
 
-        # Change index name so it does not
-        index_name = data.index.name
+        # Rename the required fields using the field_remap
+        logger.info(f"Fields required to be non-empty for the api call: {self.required_fields}")
+        required_fields = [self.field_remap.get(k, k) for k in self.required_fields]
+        logger.info(f"After applying the field remap, the new required fields are {required_fields}")
+
+        # Change index name to not collide with column names
+        original_index = data.index.copy()
         data.index.name = INDEX_IDENTIFIER
+        data.reset_index(inplace=True)  # Make the index a column which will be included as a field in the record
+
         n_connections = min(len(data), self.n_connections)
 
         logger.info(f"Started querying {self.url} with {len(data)} records.")
         logger.debug(f"HTTP headers are set to {self.headers}")
         start_time = time.monotonic()
 
-        rows = data.itertuples(index=True)
+        rows = data.to_dict(orient="records")
+
         loop = asyncio.get_event_loop()
         future = asyncio.ensure_future(_create_tasks(rows, self.params, self.url,
                                                      headers=self.headers,
-                                                     read_timeout=self.timeout,
+                                                     timeout=self.timeout,
                                                      n_retry=self.n_retry,
                                                      retry_wait_time=self.retry_wait_time,
                                                      n_connections=n_connections,
                                                      response_handler=self.response_handler,
                                                      queries_per_second=self.queries_per_second,
-                                                     raw_json=self.return_json))
+                                                     raw_json=self.return_json,
+                                                     required_fields=set(required_fields)))
         try:
             responses = loop.run_until_complete(future)
 
@@ -250,8 +282,7 @@ class QueryClient:
         if self.return_json:
             return responses
 
-        results = pd.DataFrame(responses)
-        results.index.name = index_name # Set index name back to
+        results = pd.DataFrame(responses, index=original_index)
         end_time = time.monotonic()
 
         success_rate = results[SUCCESS_IDENTIFIER].mean()
@@ -266,4 +297,4 @@ class QueryClient:
         # logger.info('Finished querying with {0:4.1%} success rate and average time per query of {1:.3f} seconds'.format(
         #    success_rate, time_per_query))
         results.columns = [self.post_append_prefix + c + self.post_append_suffix for c in results.columns]
-        return results.sort_index().astype(str)
+        return results

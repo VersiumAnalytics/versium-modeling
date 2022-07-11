@@ -13,7 +13,7 @@ LOG_FORMATS = {'CRITICAL': '%(asctime)s - %(message)s',
                    'NOTSET': '%(asctime)s - %(name)s - %(levelname)s - %(message)s', }
 
 
-class MultiFilter:
+class MultiFilter(logging.Filter):
     """Filter LogRecords.
 
     Allows multiple criteria for allowing events through the filter.
@@ -63,14 +63,13 @@ def setup_logging(*, logger=None, level='INFO', log_file=None, packages=['pyvers
     sys.excepthook = excepthook
 
     # Configure formatting and filters
-    filters = [logging.Filter(package) for package in packages]
+    filt = MultiFilter(packages)
     formatter = logging.Formatter(LOG_FORMATS[level])
 
     # Set up logging to console.
     sh = logging.StreamHandler()
     sh.setFormatter(formatter)
-    for filt in filters:
-        sh.addFilter(filt)
+    sh.addFilter(filt)
 
     logger.addHandler(sh)
 
@@ -80,8 +79,7 @@ def setup_logging(*, logger=None, level='INFO', log_file=None, packages=['pyvers
             os.makedirs(os.path.dirname(lf), exist_ok=True)
         fh = logging.FileHandler(lf, mode=file_mode)
         fh.setFormatter(formatter)
-        for filt in filters:
-            fh.addFilter(filt)
+        fh.addFilter(filt)
 
         logger.addHandler(fh)
 

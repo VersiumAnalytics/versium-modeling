@@ -18,10 +18,24 @@ logging.basicConfig()
 # Set logger name to begin with pyversium if this is the main program. This will ensure that everything in this file gets logged.
 logger = logging.getLogger('pyversium.__main__(append)' if __name__ == '__main__' else __name__)
 
+GLOBAL_EPILOG = """
+        Balancing Columns:
+            If we intend to use our appended data for modeling purposes, then we need to avoid introducing data leakage into our training data.
+            This can be particularly problematic when we have converter/non-converter as the positive and negative class in our data. A common
+            issue is that we will have more accurate or more complete information for converters vs non-converters, resulting in better append fill rates
+            for the positive class. This results in data leakage and poor model performance since most supervised learning algorithms will pick up on this
+            pattern instead of the true underlying signal that we wish to model against.
+"""
+
+TRAIN_EPILOG = """
+"""
+
+SCORE_EPILOG = """
+"""
 
 def get_parser(defaults=None):
     # Parse options common to all subparsers
-    global_parser = argparse.ArgumentParser(add_help=False)
+    global_parser = argparse.ArgumentParser(add_help=False, epilog=GLOBAL_EPILOG)
 
     global_parser.add_argument("-i", "--input", action="store", type=str, default=None, help="Input file.")
 
@@ -37,33 +51,25 @@ def get_parser(defaults=None):
     if defaults is not None:
         global_parser.set_defaults(**defaults)
 
+    global_epilog = textwrap.dedent(GLOBAL_EPILOG)
+    train_epilog = textwrap.dedent(GLOBAL_EPILOG + TRAIN_EPILOG)
+    score_epilog = textwrap.dedent(GLOBAL_EPILOG + SCORE_EPILOG)
     # Create main parser. Will inherit from global
-
-    parser = argparse.ArgumentParser(prog="append", add_help=True, parents=[global_parser])
+    parser = argparse.ArgumentParser(prog="append", add_help=True, parents=[global_parser], epilog=global_epilog)
 
     # Create subparsers
     subparsers = parser.add_subparsers(dest="cmd", required=False)
-
-    subparsers.add_parser("score", parents=[global_parser], add_help=True,
-                          help="Use options for appending to model scoring data.")
-
     # Train subparser and options
     subparsers.add_parser("train", parents=[global_parser], add_help=True,
-                          help="Use options for appending to model training data.")
+                          help="Use options for appending to model training data.", epilog=train_epilog)
+
+    subparsers.add_parser("score", parents=[global_parser], add_help=True,
+                          help="Use options for appending to model scoring data.", epilog=score_epilog)
 
     # parser.add_argument('--resume', action='store', type=int, metavar='CHUNK', help='Resume appending from CHUNK. File chunks are enumerated starting at index 0.')
     # parser.add_argument('--overwrite', action='store_true',
     #                    help='Force overwriting of files if a file already exists. By default, if file already exists, then numbers will be'
     #                         'added to the filename to give it a unique name.')
-
-    epilog_text = textwrap.dedent('''
-        Balancing Columns:
-            If we intend to use our appended data for modeling purposes, then we need to avoid introducing data leakage into our training data.
-            This can be particularly problematic when we have converter/non-converter as the positive and negative class in our data. A common
-            issue is that we will have more accurate or more complete information for converters vs non-converters, resulting in better append fill rates
-            for the positive class. This results in data leakage and poor _model performance since most supervised learning algorithms will pick up on this
-            pattern instead of the true underlying signal that we wish to _model against.
-    ''')
 
     return ParserCollection(parser)
 
@@ -140,8 +146,6 @@ def main(args=None):
 
     delimiter = config.pop('delimiter', '\t')
     header = config.pop('header', None)
-    # resume = config.pop('resume', None)
-    overwrite = config.pop('overwrite', True)
     chunksize = config.pop('chunksize')
     train = config.get("cmd", "") == "train"
 
@@ -153,11 +157,15 @@ def main(args=None):
     if isinstance(data, pd.DataFrame):
         data = [data]
 
+    used_output_files = set()
     for i, chunk in enumerate(data):
         if chunksize:
             logger.info(f"Processed chunk {i + 1}.")
         output_file = next(output_file_gen)
-        chunk.to_csv(output_file, sep=delimiter, index=False, mode='w' if overwrite else 'a')
+        mode = 'a' if output_file in used_output_files else 'w'
+        header = True if mode == 'w' else False
+        chunk.to_csv(output_file, sep=delimiter, index=False, mode=mode, header=header)
+        used_output_files.add(output_file)
 
 
 if __name__ == '__main__':

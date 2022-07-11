@@ -11,7 +11,7 @@ def filter_params(d: dict, func: Callable) -> dict:
     d : dict
         Dictionary to be filtered.
     func : callable
-        Function or class that the arguments are gonna be used in filtering.
+        Function or class with parameters to filter.
 
     Returns
     -------

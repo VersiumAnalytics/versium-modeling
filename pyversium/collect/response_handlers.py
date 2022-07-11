@@ -30,7 +30,7 @@ def api_versium_com(response, url, **kwargs):
 
     if raw_json:
         data_dict = response['versium']
-    elif 'results' in response['versium'] and isinstance(response['versium']['results'][0], dict):
+    elif response["versium"].get('results', []) and isinstance(response['versium']['results'][0], dict):
         data_dict = response['versium']['results'][0]
     else:
         data_dict = {}

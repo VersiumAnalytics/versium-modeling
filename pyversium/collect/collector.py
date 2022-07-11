@@ -387,13 +387,17 @@ class Collector:
                                  f" {self.__class__.__name__}")
 
             # We can only balance columns if we are not reading in chunks.
-            if isinstance(data, pd.DataFrame):
+            if not isinstance(data, pd.DataFrame) and self.balance_fields:
+                raise RuntimeError("Cannot balance fields when reading in chunks. The following fields were set for balancing: "
+                                   f"{self.balance_fields}")
+            elif self.balance_fields:  # Only occurs if data is a Dataframe and there are fields selected for balancing
                 for b in self.balance_fields:
                     if b not in data:
                         raise ValueError(f'Column {b} was selected for balancing but was not found in the data.')
 
                 data = balance_class_fillrates(data, self.label, self.label_positive_value, self.balance_fields,
                                                missing_values=self.missing_values, balance_diff_tol=0.1)
+
             if self.correct_label_field:
                 data = map_if_iter(self._booleanize_label, data)
 

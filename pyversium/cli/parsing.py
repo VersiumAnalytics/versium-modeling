@@ -115,9 +115,9 @@ def parser_add_collector_options(parser, base=True, chunk=True, label=True, bala
     if balance:
         parser.add_argument('--balance-fields', nargs='*', action='store', type=str, default=None,
                             help='Columns to perform missing value balancing on. Columns are only balanced if --label and --train are provided.'
-                                 'Not compatible with --chunksize option.')
+                                 ' Not compatible with --chunksize option.')
 
         parser.add_argument('--balance-diff-tol', action='store', type=float, metavar='(0.0-1.0)', default=None,
                             help='Tolerance for difference in fill rates between classes. If the difference in fill rate is greater than this, then'
-                                 'all fields passed to --balance-fields will have their missing values balanced. This only applies if the'
-                                 '--train option is used.')
+                                 ' all fields passed to --balance-fields will have their missing values balanced. This only applies if the'
+                                 ' --train option is used.')
