@@ -3,14 +3,19 @@ import json
 import logging
 import os
 import sys
-import textwrap
 
 import pandas as pd
 
-from .parsing import parser_add_log_options, parser_add_collector_options, get_config, ParserCollection
-from .schema import APPEND_CONFIG_SCHEMA_PATH
+from ._io import get_output_generator
+from ._parsing import (parser_add_log_options,
+                       parser_add_collector_options,
+                       parser_add_output_options,
+                       parser_add_input_options,
+                       get_config, ParserCollection,
+                       GLOBAL_EPILOG,
+                       WhitespaceHelpFormatter)
 from ..collect import Collector, QueryClient
-from ..utils import OutputFileGenerator, setup_logging, filter_params
+from ..utils import setup_logging, filter_params
 
 DEFAULT_CONFIG = {'query_configs': ()}
 
@@ -18,29 +23,41 @@ logging.basicConfig()
 # Set logger name to begin with pyversium if this is the main program. This will ensure that everything in this file gets logged.
 logger = logging.getLogger('pyversium.__main__(append)' if __name__ == '__main__' else __name__)
 
-GLOBAL_EPILOG = """
-        Balancing Columns:
-            If we intend to use our appended data for modeling purposes, then we need to avoid introducing data leakage into our training data.
-            This can be particularly problematic when we have converter/non-converter as the positive and negative class in our data. A common
-            issue is that we will have more accurate or more complete information for converters vs non-converters, resulting in better append fill rates
-            for the positive class. This results in data leakage and poor model performance since most supervised learning algorithms will pick up on this
-            pattern instead of the true underlying signal that we wish to model against.
+# Use carriage returns instead of newlines. These will be preserved as linebreaks in the help output while newlines are converted to
+# single spaces.
+EPILOG = """
+        Balancing Columns:\r
+        If we intend to use our appended data for modeling purposes, then we need to avoid introducing data leakage into our training
+        data. This can be particularly problematic when we have converter/non-converter as the positive and negative class in our data.
+        A common issue is that we will have more accurate or more complete information for converters vs non-converters, resulting in
+        better append fill rates for the positive class. This results in data leakage and poor model performance since most supervised
+        learning algorithms will pick up on this pattern instead of the true underlying signal that we wish to model against.
 """
 
 TRAIN_EPILOG = """
+        The `train` subcommand has two purposes. First, it allows us to specify a configuration in the config file that will be used when the
+        `train` subcommand is invoked. This can be used to apply different append behavior to data that will be used for model training
+        and data that will be used for model scoring. For example, we probably want to give different output file names to our training and
+        scoring data without having to explicitly pass the `--output` option on the CLI every time. For instructions on how to create a
+        separate `train` configuration in the config file, see the README.
+        
+        The second purpose of the `train` subcommand is to perform preprocessing that is specific to model training data. For example,
+        column balancing is performed to help remove spurious correlation between the label column and append fill rates.
 """
 
 SCORE_EPILOG = """
+        The `score` subcommand is mostly included for consistency with the the `model` CLI tool. It performs a normal append with the same
+        behavior as if a subcommand were omitted. The one difference is that the "score" configuration from the config file will be used if
+        the `score` subcommand is invoked.
 """
 
-def get_parser(defaults=None):
+
+def get_parser(defaults: dict | None = None):
     # Parse options common to all subparsers
-    global_parser = argparse.ArgumentParser(add_help=False, epilog=GLOBAL_EPILOG)
+    global_parser = argparse.ArgumentParser(add_help=False, epilog=EPILOG, formatter_class=WhitespaceHelpFormatter)
 
-    global_parser.add_argument("-i", "--input", action="store", type=str, default=None, help="Input file.")
-
-    global_parser.add_argument('-o', '--output', action='store', type=str, default=None,
-                               help='Output file')
+    parser_add_input_options(global_parser)
+    parser_add_output_options(global_parser)
 
     global_parser.add_argument("-c", "--config", action="store", type=str, default=None, metavar="CONFIG FILE",
                                help="Path to configuration file.")
@@ -51,11 +68,14 @@ def get_parser(defaults=None):
     if defaults is not None:
         global_parser.set_defaults(**defaults)
 
-    global_epilog = textwrap.dedent(GLOBAL_EPILOG)
-    train_epilog = textwrap.dedent(GLOBAL_EPILOG + TRAIN_EPILOG)
-    score_epilog = textwrap.dedent(GLOBAL_EPILOG + SCORE_EPILOG)
+    # Use carriage returns instead of newlines. These will be preserved as linebreaks in the help output while newlines are converted to
+    # single spaces.
+    global_epilog = EPILOG + "\r\r" + GLOBAL_EPILOG
+    train_epilog = EPILOG + "\r\r" + TRAIN_EPILOG
+    score_epilog = EPILOG + "\r\r" + SCORE_EPILOG
     # Create main parser. Will inherit from global
-    parser = argparse.ArgumentParser(prog="append", add_help=True, parents=[global_parser], epilog=global_epilog)
+    parser = argparse.ArgumentParser(prog="append", add_help=True, parents=[global_parser], epilog=global_epilog,
+                                     formatter_class=WhitespaceHelpFormatter)
 
     # Create subparsers
     subparsers = parser.add_subparsers(dest="cmd", required=False)
@@ -65,11 +85,6 @@ def get_parser(defaults=None):
 
     subparsers.add_parser("score", parents=[global_parser], add_help=True,
                           help="Use options for appending to model scoring data.", epilog=score_epilog)
-
-    # parser.add_argument('--resume', action='store', type=int, metavar='CHUNK', help='Resume appending from CHUNK. File chunks are enumerated starting at index 0.')
-    # parser.add_argument('--overwrite', action='store_true',
-    #                    help='Force overwriting of files if a file already exists. By default, if file already exists, then numbers will be'
-    #                         'added to the filename to give it a unique name.')
 
     return ParserCollection(parser)
 
@@ -106,13 +121,9 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    with open(APPEND_CONFIG_SCHEMA_PATH) as f:
-        append_config_schema = json.load(f)
-
     parser = get_parser()
     config = get_config(args,
                         parser=parser,
-                        config_schema=append_config_schema,
                         subparser_dest="cmd",
                         all_cmd_names=["train", "score"]
                         )
@@ -142,30 +153,31 @@ def main(args=None):
     input_file = os.path.abspath(input_file)
     output_file = config.pop('output', None)
 
-    output_file_gen = OutputFileGenerator(sys.stdout if output_file is None else output_file, input_file=input_file)
-
     delimiter = config.pop('delimiter', '\t')
     header = config.pop('header', None)
     chunksize = config.pop('chunksize')
+    chunkstart = config.get('chunkstart', 0)
+
     train = config.get("cmd", "") == "train"
 
     collector = collector_factory(config)
 
+    output_gen = get_output_generator(output_file, input_file=input_file, chunkstart=chunkstart, chunksize=chunksize, truncate=True,
+                                      has_header=True)
+
     logger.info("Begin collecting data.")
-    data = collector.collect(input_file, delimiter=delimiter, has_label=train, chunksize=chunksize, header=header)
+    data, field_names = collector.collect(input_file, delimiter=delimiter, has_label=train, chunksize=chunksize, chunkstart=chunkstart,
+                                          header=header)
 
     if isinstance(data, pd.DataFrame):
         data = [data]
 
-    used_output_files = set()
     for i, chunk in enumerate(data):
         if chunksize:
-            logger.info(f"Processed chunk {i + 1}.")
-        output_file = next(output_file_gen)
-        mode = 'a' if output_file in used_output_files else 'w'
-        header = True if mode == 'w' else False
-        chunk.to_csv(output_file, sep=delimiter, index=False, mode=mode, header=header)
-        used_output_files.add(output_file)
+            logger.info(f"Processed chunk {i + chunkstart}.")
+        output, mode = next(output_gen)
+        header = False if mode.lower().startswith("a") else True
+        chunk.to_csv(output, sep=delimiter, index=False, mode=mode, header=header)
 
 
 if __name__ == '__main__':

@@ -59,14 +59,14 @@ class BinaryModel:
                  random_state: Optional[int|np.int] = None):
         """
         A Binary Classification Model with 3 stages:
-            A FeatureSelector to select the model columns from the data and their type
+            A FeatureSelector to select the model fields from the data and their type
             A classifier that maps input data to predicted classes
             An optional postprocessor that takes the output from estimator and applies a transformation (such as score normalization)
 
         Parameters
         ----------
         feature_selector : FeatureSelector instance
-            A FeatureSelector to select columns from input data.
+            A FeatureSelector to select fields from input data.
         estimator : BaseEstimator
             A scikit-learn Estimator, Pipeline, or a custom created class that derives from BaseEstimator
         postprocessor : Postprocessor instance

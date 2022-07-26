@@ -1,8 +1,11 @@
 import logging
+from typing import Callable
 logger = logging.getLogger(__name__)
 
+ResponseHandlerType = Callable[[dict, str, ...], dict | list]
 
-def default_response_handler(response, url, **kwargs):
+
+def default_response_handler(response: dict, url: str, **kwargs) -> dict | list:
     """Default response handler. Does no processing, just returns the response as given.
 
         Parameters
@@ -23,7 +26,7 @@ def default_response_handler(response, url, **kwargs):
     return response
 
 
-def api_versium_com(response, url, **kwargs):
+def api_versium_com(response: dict, url: str, **kwargs) -> dict:
     raw_json = kwargs.pop('raw_json', False)
     if "Versium" in response:
         response["versium"] = response.pop("Versium")

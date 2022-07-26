@@ -55,7 +55,7 @@ class BinaryModelInsights:
     def feature_importances(self):
         self._check_analyzed()
         imp_dict = self._model_report['feature_importance']
-        # Turn keys in imp_dict into tuples instead of nested dictionaries. This will give us a multi-index on columns when
+        # Turn keys in imp_dict into tuples instead of nested dictionaries. This will give us a multi-index on fields when
         # we have multiple score criteria.
         imp_dict = {(K, k): v for K in imp_dict.keys() for k, v in imp_dict[K].items() if k in ('mean', 'std', 'relative')}
         return pd.DataFrame(imp_dict, index=self.feature_names)

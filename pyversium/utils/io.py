@@ -1,13 +1,69 @@
 import glob
+import io
+import itertools
 import json
 import logging
 import os
 import re
-from typing import Any
-
+import sys
+from abc import ABC, abstractmethod
+from typing import Iterator, Tuple
 import numpy as np
+import pkg_resources
 
 logger = logging.getLogger(__name__)
+
+
+def format_output_file(output_file: str, input_file: str) -> (str, int):
+
+    if input_file:
+        # Split input file path into parts
+        input_dir, input_base = os.path.split(input_file)
+        input_root, input_ext = os.path.splitext(input_base)
+
+        # inject input file name (minus extension) into output filename wherever there is a '$@' string.
+        output_file = output_file.replace('$@', input_root)
+
+    # Index to start output file numbering. If output file is not formatted for numbering, set start_idx to None
+    start_idx = None
+
+    # Regex for capturing output format strings between curly braces like my_file_{STARTIDX:FORMATSTRING}_output.txt
+    # Attempts to split into 3 groups: '{', 'STARTIDX', ':FORMATSTRING}'
+    format_capture_regex = re.compile(r"(\{)(\d*)(:\d*[a-z]\})")
+    captured_format_patterns = format_capture_regex.findall(output_file)
+
+    if captured_format_patterns:
+        start_idx = 0
+        # If there are multiple format patterns, ignore all but the first
+        captured_format_patterns = captured_format_patterns[0]
+        # If we have 3 capture groups then the 2nd one signifies the start_index. Need to store this and remove it from the string.
+        if len(captured_format_patterns) == 3:
+            start_idx = int(captured_format_patterns[1])
+
+            # remove the start_index portion of the format string by replacing the entire thing with just capture groups 1 and 3
+            output_file = format_capture_regex.sub(r'\1\3', output_file)
+
+    return output_file, start_idx
+
+
+def _truncate_stream(stream: io.IOBase, num_lines: int):
+    stream.seek(0)
+    for i in range(num_lines):
+        stream.readline()
+    stream.truncate(stream.tell())
+    logger.debug(f"Truncated to {stream.tell()} bytes")
+    stream.flush()
+
+
+def truncate_stream(file: str | io.IOBase, num_lines: int):
+    if isinstance(file, str):
+        logger.debug(f"Truncating {file} to {num_lines} lines.")
+        with open(file, 'r+') as f:
+            _truncate_stream(f, num_lines)
+    # If we have an IO stream, only truncate if seek operations are allowed and the stream is not connected to a terminal/tty
+    elif isinstance(file, io.IOBase) and file.seekable() and file.writable() and not file.isatty():
+        file.seek(0)
+        _truncate_stream(file, num_lines)
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -34,37 +90,6 @@ class NumpyDecoder(json.JSONDecoder):
             return np.ndarray(*obj["<__args__>"], **obj["<__kwargs__>"])
         else:
             return obj
-
-
-class ScoringPaths:
-    """
-    ScoringPaths class generates paths for scoring files and folders.
-
-    Parameters
-    ----------
-    model_folder : str
-        BinaryModel folder.
-
-    scoring_name : str
-        Name of the scoring that the scoring folder will be named for.
-    """
-
-    def __init__(self, model_folder, scoring_name):
-        # Folders.
-        scoring_name = str(scoring_name)
-        self.scoring_folder = os.path.join(model_folder, scoring_name)
-
-        # Create folders.
-        os.makedirs(self.scoring_folder, exist_ok=True)
-
-        # Input & output files.
-        self.input_data_file = os.path.join(self.scoring_folder, 'input_data.txt')
-        self.appended_data_file = os.path.join(self.scoring_folder, 'appended_data.parquet')
-        self.scored_appended_data_file = os.path.join(self.scoring_folder, 'scored_appended_data.parquet')
-        self.scores_file = os.path.join(self.scoring_folder, 'scores.txt')
-        self.scored_data_file = os.path.join(self.scoring_folder, 'scored_data.txt')
-
-        return
 
 
 class ModelPaths:
@@ -96,15 +121,16 @@ class ModelPaths:
         self.score_log_file = os.path.join(self.logging_folder, 'score.log')
 
         # Metadata
-        self.__version__ = 1.0
-        #self.__version__ = pkg_resources.get_distribution('analytics').version
-        self.metadata = os.path.join(self.model_folder, 'metadata.json')
+        try:
+            self.__version__ = pkg_resources.get_distribution('analytics').version
+        except pkg_resources.DistributionNotFound:
+            self.__version__ = None
 
+        self.metadata = os.path.join(self.model_folder, 'metadata.json')
 
         self.model_file = os.path.join(self.model_folder, 'model.pkl')
         self.model_factory = os.path.join(self.model_folder, 'model_factory.pkl')
         self.estimator_factory = os.path.join(self.model_folder, 'estimator_factory.pkl')
-
 
         # Create folders
         os.makedirs(self.model_folder, exist_ok=True)
@@ -132,9 +158,6 @@ class ModelPaths:
         with open(self.metadata, 'r') as f:
             return json.load(f)
 
-    def get_scoring_paths(self, scoring_name):
-        return ScoringPaths(self.model_folder, scoring_name)
-
     def __repr__(self):
         return f"ModelPaths ('{self.model_folder}')"
 
@@ -145,37 +168,6 @@ class ModelPaths:
         if not isinstance(other, ModelPaths):
             return NotImplemented
         return self.model_folder == other.model_folder
-
-
-def format_output_file(output_file: str, input_file: str) -> (str, int):
-
-    if input_file:
-        # Split input file path into parts
-        input_dir, input_base = os.path.split(input_file)
-        input_root, input_ext = os.path.splitext(input_base)
-
-        # inject input file name (minus extension) into output filename wherever there is a '$@' string.
-        output_file = output_file.replace('$@', input_root)
-
-    # Index to start output file numbering
-    start_idx = 0
-
-    # Regex for capturing output format strings between curly braces like my_file_{STARTIDX:FORMATSTRING}_output.txt
-    # Attempts to split into 3 groups: '{', 'STARTIDX', ':FORMATSTRING}'
-    format_capture_regex = re.compile(r"(\{)(\d*)(:\d*[a-z]\})")
-    captured_format_patterns = format_capture_regex.findall(output_file)
-
-    if captured_format_patterns:
-        # If there are multiple format patterns, ignore all but the first
-        captured_format_patterns = captured_format_patterns[0]
-        # If we have 3 capture groups then the 2nd one signifies the start_index. Need to store this and remove it from the string.
-        if len(captured_format_patterns) == 3:
-            start_idx = int(captured_format_patterns[1])
-
-            # remove the start_index portion of the format string by replacing the entire thing with just capture groups 1 and 3
-            output_file = format_capture_regex.sub(r'\1\3', output_file)
-
-    return output_file, start_idx
 
 
 class InputFileGenerator:
@@ -199,55 +191,87 @@ class InputFileGenerator:
 
 
 class OutputFileGenerator:
+    """Takes an absolute or relative path with optional formatting strings and generates output file(s).
+    If an input file is provided, you can use $@ to have the input filename injected into the output file name
+    A format string of the form {<STARTIDX>:FORMATSTRING} can be included in the output filename to control
+    file numbering. FORMATSTRING is the 'new style' python string formatting. For example, to make a series of output_files starting at 3
+    padded to 3 zeros with input_file='my_file.txt': $@_output_{3:03d}.txt
 
-    def __init__(self, filename_or_pattern: Any, input_file=None):
+    Multiple files will be generated if a format string is present in the filename and `chunksize` is non-zero. Otherwise, a single file is
+    generated.
+    """
+    _multi_file: bool
+    _format_output: bool
+    chunkstart: int
+    chunksize: int | None
+    input_file: None | str
+    start_idx: int
+    current: int
+    _output_file: str
 
-        self.format_output = False
+    def __init__(self, filename_or_pattern: str,
+                 chunkstart: int = 0,
+                 chunksize: int | None = None,
+                 input_file: str | None = None):
+        if chunkstart and not chunksize:
+            # Can't have a chunkstart if there is no chunksize
+            raise ValueError(f"`chunkstart` was set to {chunkstart} but `chunksize` is {chunksize}. Please remove `chunkstart` parameter or"
+                             " set a non-zero `chunksize`")
+
+        self._format_output = False
         output_file = filename_or_pattern
-        start_idx = 0
+        start_idx = None
 
         if isinstance(filename_or_pattern, str):
-            self.format_output = True
+            self._format_output = True
             output_file, start_idx = format_output_file(filename_or_pattern, input_file)
 
-            # Make all non-existing directories on the path to output_file
+            # Make all non-existing directories on the path to _output_file
             if os.path.dirname(output_file):
                 os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-        self.start_idx = start_idx
-        self.current = start_idx
-        self.output_file = output_file
+        self._multi_file = start_idx is not None
+        self.chunkstart = chunkstart
+        self.chunksize = chunksize
 
-    def _format(self):
-        if self.format_output:
-            return self.output_file.format(self.current)
+        self.start_idx = start_idx or 0
+        self.start_idx += chunkstart
+
+        self.current = self.start_idx
+        self._output_file = output_file
+
+        if self.is_multi_file:
+            logger.debug(f"{self.__class__.__name__} will generate multiple files starting with: {self.current_output}")
         else:
-            return self.output_file
+            logger.debug(f"{self.__class__.__name__} will repeatedly generate one file: {self.current_output}")
 
-    def __iter__(self):
+    @property
+    def is_multi_file(self) -> bool:
+        return self._multi_file
+
+    @property
+    def current_output(self) -> str:
+        return self.format(self.current)
+
+    def format(self, num: int):
+        if self._format_output:
+            return self._output_file.format(num)
+        else:
+            return self._output_file
+
+    def __iter__(self) -> Iterator[Tuple[str, str]]:
         self.current = self.start_idx
         return self
 
-    def __next__(self):
-        output_file = self._format()
+    def __next__(self) -> Tuple[str, str]:
+        output_file = self.format(self.current)
+        mode = 'w'
+
+        if self.current and not self.is_multi_file:
+            mode = 'a'
+
         self.current += 1
-        return output_file
+        return output_file, mode
 
-    def __str__(self):
-        output = self._format()
-        return output.__repr__()
-
-    @staticmethod
-    def help():
-        instruction = "Output file may take an absolute or relative path with optional formatting strings.\n" \
-                     "If an input_file is provided, you can use $@ to have the input filename injected into the output file name\n" \
-                     "A format string of the form {<STARTIDX>:FORMATSTRING} can be included in the output filename to control\n" \
-                     "file numbering. FORMATSTRING is the 'new style' python string formatting.\n" \
-                     "Example:\n Make a series of output_files starting at 3 padded to 3 zeros with input_file='my_file.txt'\n" \
-                     "$@_output_{3:03d}.txt"
-        return instruction
-
-
-
-
-
+    def __str__(self) -> str:
+        return self.current_output

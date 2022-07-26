@@ -5,7 +5,7 @@ import logging
 import os
 import random
 from os.path import getsize
-from typing import Optional, Generator, ParamSpec, Any
+from typing import Optional, Generator, ParamSpec, Any, Tuple
 
 import pandas as pd
 from psutil import virtual_memory
@@ -16,6 +16,8 @@ from ..constants import STR_NA_VALUES
 logger = logging.getLogger(__name__)
 
 P = ParamSpec('P')
+
+DataFieldNamesTuple = Tuple[pd.DataFrame | Generator[pd.DataFrame, None, None], list[str] | None]
 
 
 def get_header(filepath_or_buffer: str, delimiter: str, quotechar: str = '"', dialect: str = 'unix', encoding: str = 'latin-1') -> list[
@@ -168,7 +170,7 @@ def _chunked_read(filepath_or_buffer: str, delimiter: str,
 def balance_class_fillrates(data, label_column: str, label_positive_value: Any, balance_fields: list[str], missing_values: list[str] = STR_NA_VALUES,
                             balance_diff_tol=0.1):
     """
-    Balance columns by randomly setting values to NaN.
+    Balance fields by randomly setting values to NaN.
 
     Parameters
     -------
@@ -196,13 +198,13 @@ def balance_class_fillrates(data, label_column: str, label_positive_value: Any, 
 
     balanced_columns = []
 
-    # Go over all columns that are set for balancing.
+    # Go over all fields that are set for balancing.
     for balance_column_name in balance_fields:
 
         logger.info(f"Column {balance_column_name} is marked for balancing")
 
         if balance_column_name not in data.columns:
-            logger.warning(f"Column {balance_column_name} is marked for balancing but it is not in existing columns")
+            logger.warning(f"Column {balance_column_name} is marked for balancing but it is not in existing fields")
             continue
 
         # Calculate the fill ratios to check fill imbalance.
@@ -302,108 +304,10 @@ class Collector:
         self.correct_label_field = correct_label_field
         self.consolidate_missing = consolidate_missing
 
-    def append(self, data: pd.DataFrame) -> pd.DataFrame:
-        """
-        Append data.
-
-        Parameters
-        -------
-        data : pd.DataFrame
-            Input data for performing appends.
-
-        Returns
-        -------
-        data : pandas.DataFrame
-            Appended data.
-        """
-        if not self.api_queries:
-            return data
-
-        append_data = pd.DataFrame(index=data.index)
-        for qclient in self.api_queries:
-            api_data = qclient.query(data)
-            append_data = append_data.merge(api_data, how='left', left_index=True, right_index=True, suffixes=('', '_append'))
-        return data.merge(append_data, how='left', left_index=True, right_index=True, suffixes=('', '_append'))
-
-    def collect(self, filepath_buffer_or_dataframe,
-                has_label: bool = False,
-                delimiter: str = '\t',
-                header: Optional[list | tuple | str] = None,
-                chunksize: Optional[int] = None,
-                safe: bool = False) -> pd.DataFrame | Generator[pd.DataFrame, None, None]:
-        """
-        Read a delimited file into a Pandas DataFrame.
-
-        Parameters
-        ----------
-
-
-        filepath_buffer_or_dataframe : str
-            Path to the file.
-
-        has_label : bool
-            Whether the data we are reading has a label. Should be set to True when reading training data and False otherwise
-
-        delimiter : str, optional (default='\t')
-            Delimiter.
-
-        header : str, tuple, or list, optional
-            If string, this is the path to a file containing the header names. If list or tuple, this is an array of header names.
-            Defaults to first line in file if None
-
-        chunksize : int, optional
-            Size of chunking to perform on file. If 0 or None, the entire file is read. Otherwise, the file is read in chunks and
-            a dataframe generator is returned.
-
-        safe : bool
-            Tries to safely decode the data, falling back to ascii decoding if Unicode fails. This also works with chunking
-            when the first half of the file properly Unicode encoded but the later half is not. When chunking, this may incur
-            some additional overhead since chunking will be done via reopening the file and performing a seek and read.
-
-        Returns
-        -------
-        data : pandas.DataFrame or pandas.DataFrame generator
-        """
-
-        # If we have a dataframe, apply functions directly, otherwise it's an iterator and we need to apply a map
-        def map_if_iter(function, input_data, *args, **kwargs):
-            if isinstance(input_data, pd.DataFrame):
-                return function(input_data, *args, **kwargs)
-            else:
-                return map(function, input_data, *args, **kwargs)
-
-        logger.debug(f"filepath_buffer_or_dataframe is of type {type(filepath_buffer_or_dataframe)}")
-        if isinstance(filepath_buffer_or_dataframe, pd.DataFrame):
-            data = filepath_buffer_or_dataframe
-        else:
-            data = self.read(filepath_buffer_or_dataframe, delimiter=delimiter, chunksize=chunksize,
-                             header=header, safe=safe, na_values=self.missing_values)
-
-        map_if_iter(self._check_required_fields, data)
-
-        if has_label:
-            if not self.label:
-                raise ValueError("`has_label` argument set to True, but no `label` had been set for this instance of"
-                                 f" {self.__class__.__name__}")
-
-            # We can only balance columns if we are not reading in chunks.
-            if not isinstance(data, pd.DataFrame) and self.balance_fields:
-                raise RuntimeError("Cannot balance fields when reading in chunks. The following fields were set for balancing: "
-                                   f"{self.balance_fields}")
-            elif self.balance_fields:  # Only occurs if data is a Dataframe and there are fields selected for balancing
-                for b in self.balance_fields:
-                    if b not in data:
-                        raise ValueError(f'Column {b} was selected for balancing but was not found in the data.')
-
-                data = balance_class_fillrates(data, self.label, self.label_positive_value, self.balance_fields,
-                                               missing_values=self.missing_values, balance_diff_tol=0.1)
-
-            if self.correct_label_field:
-                data = map_if_iter(self._booleanize_label, data)
-
-        data = map_if_iter(self.append, data)
-
-        return data
+    def _check_required_fields(self, data):
+        missing_fields = set(self.required_fields) - set(data.columns.values)
+        if missing_fields:
+            raise RuntimeError(f"Data is missing required fields: {list(missing_fields)}.")
 
     def _booleanize_label(self, data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -436,18 +340,36 @@ class Collector:
 
         return data
 
-    def _check_required_fields(self, data):
-        missing_fields = set(self.required_fields) - set(data.columns.values)
-        if missing_fields:
-            raise RuntimeError(f"Data is missing required fields: {list(missing_fields)}.")
+    def append(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Append data.
 
-    @staticmethod
-    def read(filepath_or_buffer: str | io.TextIOBase,
-             delimiter: str = '\t',
-             header: Optional[list | tuple | str] = None,
-             chunksize: Optional[int] = None,
-             safe: bool = False,
-             na_values: list[str] = ()) -> pd.DataFrame | Generator[pd.DataFrame, None, None]:
+        Parameters
+        -------
+        data : pd.DataFrame
+            Input data for performing appends.
+
+        Returns
+        -------
+        data : pandas.DataFrame
+            Appended data.
+        """
+        if not self.api_queries:
+            return data
+
+        append_data = pd.DataFrame(index=data.index)
+        for qclient in self.api_queries:
+            api_data = qclient.query(data)
+            append_data = append_data.merge(api_data, how='left', left_index=True, right_index=True, suffixes=('', '_append'))
+        return data.merge(append_data, how='left', left_index=True, right_index=True, suffixes=('', '_append'))
+
+    def collect(self, filepath_buffer_or_dataframe,
+                has_label: bool = False,
+                delimiter: str = '\t',
+                header: Optional[list | tuple | str] = None,
+                chunksize: Optional[int] = None,
+                chunkstart: Optional[int] = None,
+                safe: bool = False) -> DataFieldNamesTuple:
         """
         Read a delimited file into a Pandas DataFrame.
 
@@ -455,23 +377,17 @@ class Collector:
         ----------
 
 
-        filepath_or_buffer : str
-            Path to the file.
+        filepath_buffer_or_dataframe : Path to the file.
 
-        delimiter : str, optional (default='\t')
-            Delimiter.
+        has_label : Whether the data we are reading has a label. Should be set to True when reading training data and False otherwise
 
-        header : str, tuple, or list, optional
-            If string, this is the path to a file containing the header names. If list or tuple, this is an array of header names.
+        delimiter : Delimiter.
+
+        header : If string, this is the path to a file containing the header names. If list or tuple, this is an array of header names.
             Defaults to first line in file if None
 
-        chunksize : int, optional
-            Size of chunking to perform on file. If 0 or None, the entire file is read. Otherwise, the file is read in chunks and
+        chunksize : Size of chunking to perform on file. If 0 or None, the entire file is read. Otherwise, the file is read in chunks and
             a dataframe generator is returned.
-
-        extra_columns : list(str), optional
-            Additional columns to return from input file. These columns do not require column definitions and will not
-            be checked for in subsequent file reads.
 
         safe : bool
             Tries to safely decode the data, falling back to ascii decoding if Unicode fails. This also works with chunking
@@ -480,7 +396,105 @@ class Collector:
 
         Returns
         -------
-        data : pandas.DataFrame or pandas.DataFrame generator
+        pandas.DataFrame or pandas.DataFrame generator, names of fields in data
+        """
+
+        # If we have a dataframe, apply functions directly, otherwise it's an iterator and we need to apply a map
+        def map_if_iter(function, input_data, *args, **kwargs):
+            if isinstance(input_data, pd.DataFrame):
+                return function(input_data, *args, **kwargs)
+            else:
+                return map(function, input_data, *args, **kwargs)
+
+        logger.debug(f"filepath_buffer_or_dataframe is of type {type(filepath_buffer_or_dataframe)}")
+        if isinstance(filepath_buffer_or_dataframe, pd.DataFrame):
+            data = filepath_buffer_or_dataframe
+            field_names = data.columns
+        else:
+            data, field_names = self.read(filepath_buffer_or_dataframe, delimiter=delimiter, chunksize=chunksize, chunkstart=chunkstart,
+                                          header=header, safe=safe, na_values=self.missing_values)
+
+        map_if_iter(self._check_required_fields, data)
+
+        if has_label:
+            if not self.label:
+                raise ValueError("`has_label` argument set to True, but no `label` had been set for this instance of"
+                                 f" {self.__class__.__name__}")
+
+            # We can only balance fields if we are not reading in chunks.
+            if not isinstance(data, pd.DataFrame) and self.balance_fields:
+                raise RuntimeError("Cannot balance fields when reading in chunks. The following fields were set for balancing: "
+                                   f"{self.balance_fields}")
+            elif self.balance_fields:  # Only occurs if data is a Dataframe and there are fields selected for balancing
+                for b in self.balance_fields:
+                    if b not in data:
+                        raise ValueError(f'Column {b} was selected for balancing but was not found in the data.')
+
+                data = balance_class_fillrates(data, self.label, self.label_positive_value, self.balance_fields,
+                                               missing_values=self.missing_values, balance_diff_tol=0.1)
+
+            if self.correct_label_field:
+                data = map_if_iter(self._booleanize_label, data)
+
+        data = map_if_iter(self.append, data)
+
+        return data, field_names
+
+    @staticmethod
+    def _read_buffer(buffer: io.TextIOBase,
+                     delimiter: str = '\t',
+                     header: Optional[list | tuple | str] = None,
+                     chunksize: Optional[int] = None,
+                     chunkstart: Optional[int] = None,
+                     safe: bool = False,
+                     na_values: list[str] = ()) -> DataFieldNamesTuple:
+        pass
+
+    @staticmethod
+    def _read_filepath(filepath_or_buffer: io.TextIOBase,
+                     delimiter: str = '\t',
+                     header: Optional[list | tuple | str] = None,
+                     chunksize: Optional[int] = None,
+                     chunkstart: Optional[int] = None,
+                     safe: bool = False,
+                     na_values: list[str] = ()) -> DataFieldNamesTuple:
+        pass
+
+    @staticmethod
+    def read(filepath_or_buffer: str | io.TextIOBase | list[str | io.TextIOBase],
+             delimiter: str = '\t',
+             header: Optional[list | tuple | str] = None,
+             chunksize: Optional[int] = None,
+             chunkstart: Optional[int] = None,
+             safe: bool = False,
+             na_values: list[str] = ()) -> DataFieldNamesTuple:
+        """
+        Read a delimited file into a Pandas DataFrame.
+
+        Parameters
+        ----------
+
+        filepath_or_buffer : Path to a file or a buffer. Alternatively, a list of file paths or buffers.
+
+        delimiter : Delimiter.
+
+        header : If string, this is the path to a file containing the header names. If list or tuple, this is an array of header names.
+            Defaults to first line in file if None
+
+        chunksize : Size of chunking to perform on file. If 0 or None, the entire file is read. Otherwise, the file is read in chunks and
+            a dataframe generator is returned.
+
+        chunkstart :
+
+        safe : Tries to safely decode the data, falling back to ascii decoding if Unicode fails. This also works with chunking
+            when the first half of the file properly Unicode encoded but the later half is not. When chunking, this may incur
+            some additional overhead since chunking will be done via reopening the file and performing a seek and read.
+
+         na_values : Values to consider missing.
+
+        Returns
+        -------
+        pandas.DataFrame or pandas.DataFrame generator, names of fields in data
         """
 
         # If not given a header assume it's the first row in the file.
@@ -490,7 +504,7 @@ class Collector:
             names = None
         # If header is a list or tuple, use those as column names and assume there is no header in the file
         elif isinstance(header, (list, tuple)):
-            logger.debug("header is a list of column names. Setting  names=header and header=None")
+            logger.debug("header is a list of column names. Setting names=header and header=None")
             names = header
             header = None
         # If header is a string, assume it's a path to a header file and attempt to read.
@@ -503,35 +517,58 @@ class Collector:
         else:
             raise TypeError(f"Unrecognized type for header: {type(header)}.")
 
-        # Check if we have enough memory.
-        low_memory = (getsize(filepath_or_buffer) > virtual_memory().available * 0.75)
+        # These will be the fields or columns in the dataset
+        field_names = names
 
         if isinstance(filepath_or_buffer, (list, tuple)):
             logger.debug(f"filepath_or_buffer is iterable. Attempting to load {len(filepath_or_buffer)} files.")
             if chunksize:
                 raise ValueError("Cannot set both multiple files and chunksize. You can either read multiple files or one file in chunks.")
-        else:
-            logger.info(f'Loading dataset from {filepath_or_buffer}')
+
+        elif isinstance(filepath_or_buffer, str):
+            logger.info(f'Loading dataset from file {filepath_or_buffer}')
+            if field_names is None:
+                # Get the field names from the file header
+                field_names = get_header(filepath_or_buffer, delimiter=delimiter)
             filepath_or_buffer = [filepath_or_buffer]  # Wrap in list for consistency with multiple input files
 
+        elif isinstance(filepath_or_buffer, io.TextIOBase):
+            if field_names is None and chunksize:
+                logger.warning("Could not determine field names ahead of time since dataframes are lazy-loaded chunks from a"
+                               " buffered stream.")
+            filepath_or_buffer = [filepath_or_buffer]  # Wrap in list for consistency with multiple input files
+
+        else:
+            raise TypeError(f"Unrecognized type for filepath_or_buffer: {type(filepath_or_buffer)}.")
+
         dataframes = []
+        skiprows = 0
+        if chunksize and chunkstart:
+            skiprows = chunkstart * chunksize
+
+        # Check if we have enough memory.
+        max_file_size = max(map(getsize, filepath_or_buffer))
+        low_memory = (max_file_size > virtual_memory().available * 0.75)
+
         for f in filepath_or_buffer:
             try:
                 data = read_file_or_buffer(f, delimiter, engine='c', dtype=str,
-                                           parse_dates=False, skip_blank_lines=True, low_memory=low_memory,
-                                           chunksize=chunksize, header=header, names=names, safe=safe, na_values=na_values)
+                                           parse_dates=False, skip_blank_lines=False, low_memory=low_memory,
+                                           chunksize=chunksize, header=header, names=field_names, safe=safe, na_values=na_values,
+                                           skiprows=skiprows)
                 if chunksize:
                     logger.debug(f"`chunksize` is {chunksize}. Returning iterable of lazy-loaded dataframes.")
-                    return data
+                    return data, field_names
                 dataframes += [data]
 
             except Exception as e:
                 raise IOError(f'Cannot read {f}').with_traceback(e.__traceback__)
 
-        logging.debug("Concatenating dataframes together.")
+        logging.debug(f"Concatenating {len(dataframes)} dataframes together.")
         data = pd.concat(dataframes, ignore_index=True, copy=False, axis=0)
 
         logger.info(f"Finished loading dataset.")
-        logger.info(f'Dataset contains {len(data)} columns')
-
-        return data
+        logger.info(f'Dataset contains {len(data)} records')
+        field_names = list(data.columns.values)
+        logger.info(f"Dataset contains {len(field_names)} fields.")
+        return data, field_names

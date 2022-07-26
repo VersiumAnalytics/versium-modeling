@@ -90,14 +90,14 @@ class InferredFeatureSelector(BaseFeatureSelector):
     fill_rate_threshold: float
 
     def __init__(self,
-                 include_columns: list[str] = (),
-                 exclude_columns: list[str] = (),
+                 include_fields: list[str] = (),
+                 exclude_fields: list[str] = (),
                  column_dtypes: Optional[dict[str, str]] = None,
                  fill_rate_threshold=0.6):
         super().__init__()
 
-        self.include_columns = include_columns
-        self.exclude_columns = exclude_columns
+        self.include_fields = include_fields
+        self.exclude_fields = exclude_fields
         self.column_dtypes = column_dtypes
         self.fill_rates = {}
         self.fill_rate_threshold = fill_rate_threshold
@@ -106,19 +106,19 @@ class InferredFeatureSelector(BaseFeatureSelector):
 
     def fit(self, X: pd.DataFrame, y: Optional[pd.Series] = None):
 
-        if not self.include_columns:
+        if not self.include_fields:
             include = X.columns
         else:
-            include = self.include_columns
+            include = self.include_fields
 
-        exclude_set = set(self.exclude_columns)
+        exclude_set = set(self.exclude_fields)
         if y is not None:
             exclude_set.add(y.name)
 
         # Doing list comprehension instead of set difference preserves order of include.
         model_cols = [i for i in include if i not in exclude_set]
         if set(model_cols) != set(model_cols).intersection(set(X.columns)):
-            raise ValueError("The following columns were supplied to `include_columns` but were not found in the dataset:"
+            raise ValueError("The following fields were supplied to `include_fields` but were not found in the dataset:"
                              f"{set(model_cols) - set(X.columns)}")
 
 
@@ -157,7 +157,7 @@ class InferredFeatureSelector(BaseFeatureSelector):
         self.strings = string_features
         self.num_sampled = len(X_inferred)
 
-        # Convert dtypes to dict for only columns we need, and convert each dtype to its string representation
+        # Convert dtypes to dict for only fields we need, and convert each dtype to its string representation
         self.column_dtypes = {k: str(v) for k, v in dtypes[self.columns].to_dict().items()}
 
         self.num_unique = num_unique[self.columns].to_dict()

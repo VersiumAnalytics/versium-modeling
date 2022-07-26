@@ -13,8 +13,8 @@ MAX_RELATIVE_CARDINALITY = .2
 
 class BaseFeatureSelector(ABC, TransformerMixin):
     # init args
-    include_columns: list[str]
-    exclude_columns: list[str]
+    include_fields: list[str]
+    exclude_fields: list[str]
 
     # internal vars
     columns: list[str]
@@ -24,9 +24,9 @@ class BaseFeatureSelector(ABC, TransformerMixin):
     strings: set[str]
     datetime: set[str]
 
-    def __init__(self, include_columns: list[str] = (), exclude_columns: list[str] = ()):
-        self.include_columns = include_columns
-        self.exclude_columns = exclude_columns
+    def __init__(self, include_fields: list[str] = (), exclude_fields: list[str] = ()):
+        self.include_fields = include_fields
+        self.exclude_fields = exclude_fields
         self.columns = []
         self.numeric = set()
         self.categorical = set()
