@@ -20,8 +20,7 @@ P = ParamSpec('P')
 DataFieldNamesTuple = Tuple[pd.DataFrame | Generator[pd.DataFrame, None, None], list[str] | None]
 
 
-def get_header(filepath_or_buffer: str, delimiter: str, quotechar: str = '"', dialect: str = 'unix', encoding: str = 'latin-1') -> list[
-    str]:
+def get_header(filepath_or_buffer: str, delimiter: str, quotechar: str = '"', dialect: str = 'unix', encoding: str = 'utf-8') -> list[str]:
     """Get the column headers of a file.
 
     Assumes that the file has a header row as its first row.
@@ -49,10 +48,18 @@ def get_header(filepath_or_buffer: str, delimiter: str, quotechar: str = '"', di
     headers : list[str]
         Headers of the given file.
     """
-    with open(filepath_or_buffer, newline='', encoding=encoding) as csvfile:
-        reader = csv.reader(csvfile, delimiter=delimiter, quotechar=quotechar, dialect=dialect)
-        header = next(reader)
-    return header
+
+    def _get_header(enc):
+        with open(filepath_or_buffer, newline='', encoding=enc, mode='r+') as csvfile:
+            reader = csv.reader(csvfile, delimiter=delimiter, quotechar=quotechar, dialect=dialect)
+            header = next(reader)
+            logger.debug(f"Header is: {header}")
+            return header
+
+    try:
+        return _get_header(encoding)
+    except UnicodeDecodeError:
+        return _get_header('latin-1')
 
 
 def read_file_or_buffer(filepath_or_buffer: str, delimiter: str,
@@ -549,6 +556,7 @@ class Collector:
         # Check if we have enough memory.
         max_file_size = max(map(getsize, filepath_or_buffer))
         low_memory = (max_file_size > virtual_memory().available * 0.75)
+        logger.debug(f"Low memory is {low_memory}")
 
         for f in filepath_or_buffer:
             try:
