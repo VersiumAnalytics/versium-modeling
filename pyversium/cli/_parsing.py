@@ -152,7 +152,7 @@ def parser_add_collector_options(parser, base=True, chunk=True, label=True, bala
         parser.add_argument('--header', type=str, default=None,
                             help="Path to header file, if there is one. Don't include this if your file already has a header.")
         parser.add_argument('-d', '--delimiter', action='store', type=str, default=",", help="Column separator for input and output. (default: %(default)s)")
-        parser.add_argument('--required-fields', nargs='*', action='store', type=str, default=None,
+        parser.add_argument('--required-fields', nargs='*', action='store', type=str, default=[],
                             help='Columns that are required to be present when reading in the data. This helps catch errors early on before'
                                  'appending data. Takes multiple arguments.')
         parser.add_argument('--missing-values', nargs='*', action='store', type=str,
@@ -173,11 +173,11 @@ def parser_add_collector_options(parser, base=True, chunk=True, label=True, bala
                             help='Value for the positive class.')
 
     if balance:
-        parser.add_argument('--balance-fields', nargs='*', action='store', type=str, default=None,
+        parser.add_argument('--balance-fields', nargs='*', action='store', type=str, default=[],
                             help='Columns to perform missing value balancing on. Columns are only balanced if --label and --train are provided.'
                                  ' Not compatible with --chunksize option. Takes multiple arguments.')
 
-        parser.add_argument('--balance-diff-tol', action='store', type=float, metavar='(0.0-1.0)', default=None,
+        parser.add_argument('--balance-diff-tol', action='store', type=float, metavar='(0.0-1.0)', default=0.0,
                             help='Tolerance for difference in fill rates between classes. If the difference in fill rate is greater than this, then'
                                  ' all fields passed to --balance-fields will have their missing values balanced. This only applies if the'
                                  ' --train option is used.')
