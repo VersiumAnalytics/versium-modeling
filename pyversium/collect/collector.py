@@ -20,7 +20,7 @@ P = ParamSpec('P')
 DataFieldNamesTuple = Tuple[pd.DataFrame | Generator[pd.DataFrame, None, None], list[str] | None]
 
 
-def get_header(filepath_or_buffer: str, delimiter: str, quotechar: str = '"', dialect: str = 'unix', encoding: str = 'utf-8') -> list[str]:
+def get_header(filepath_or_buffer: str, delimiter: str, quotechar: str = '"', dialect: str = 'unix', encoding: str = 'utf-8-sig') -> list[str]:
     """Get the column headers of a file.
 
     Assumes that the file has a header row as its first row.
