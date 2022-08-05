@@ -105,7 +105,7 @@ def calc_include_exclude_fields(fields: list[str],
         regex_inc_set |= set(filter(lambda x: re.fullmatch(pattern, x), fields))
 
     for pattern in exclude_regex:
-        regex_inc_set |= set(filter(lambda x: re.match(pattern, x), fields))
+        regex_ex_set |= set(filter(lambda x: re.match(pattern, x), fields))
 
     include_set = set(include) | regex_inc_set
     exclude_set = set(exclude) | regex_ex_set
@@ -152,6 +152,9 @@ def train(config):
 
     logger.debug(f"\ninclude: {include}\nexclude: {exclude}")
 
+    if not filtered_fields:
+        raise ValueError("After taking `include` and `exclude` fields into account, there are no fields left for modeling.")
+
     feature_selector = InferredFeatureSelector(include_fields=include, exclude_fields=exclude)
     label = data[collector.label].astype(int)
     post = QuantilePostprocessor()
@@ -186,8 +189,10 @@ def score(config):
     logger.debug(f"Input file is {input_file}")
 
     output_file = config.pop('output')
-    chunksize = config.get("chunksize", 0)
-    chunkstart = config.get("chunkstart", 0)
+    chunksize = config["chunksize"]
+    chunkstart = config["chunkstart"]
+    delimiter = config["delimiter"]
+    header = config["header"]
 
     logger.info("Begin reading input file.")
 
@@ -197,11 +202,11 @@ def score(config):
         consolidate_missing=True)
 
     data, field_names = collector.collect(input_file,
-                                          delimiter=config['delimiter'],
+                                          delimiter=delimiter,
                                           has_label=False,
-                                          chunksize=config['chunksize'],
+                                          chunksize=chunksize,
                                           chunkstart=chunkstart,
-                                          header=config['header'])
+                                          header=header)
 
     logger.info("Finished reading input file.")
 
@@ -224,7 +229,7 @@ def score(config):
     logger.info("Begin scoring data.")
 
     output_gen = get_output_generator(output_file, input_file=input_file, chunkstart=chunkstart, chunksize=chunksize, truncate=True,
-                                      has_header=True)
+                                      delimiter=delimiter, has_header=True)
 
     score_field_name = config.get("score_field_name", "Score")
     for i, chunk in enumerate(data):

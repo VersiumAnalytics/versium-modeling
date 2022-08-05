@@ -4,13 +4,13 @@ This model has a dataset with __{{ '{:,d}'.format(insights.n_train_positive + in
 There are __{{ '{:,d}'.format(insights.n_features) }}__ features. Hold-out test set is __{{ '{:.2%}'.format(insights.test_ratio)}}__ of the dataset.
 
 {%- if insights.estimator_pipeline_diagram_html%}
-## Estimator Pipeline
+## Estimator
 {{ insights.estimator_pipeline_diagram_html }}
 {%- endif %}
 
-{%- if insights.postprocess_pipeline_diagram_html%}
-## Postprocess Pipeline
-{{ insights.postprocess_pipeline_diagram_html }}
+{%- if insights.postprocessor_pipeline_diagram_html%}
+## Postprocessor
+{{ insights.postprocessor_pipeline_diagram_html }}
 {%- endif %}
 
 ## Features
@@ -40,10 +40,10 @@ be predicted negative. This uses the model's _predict_proba_ method and does __N
 
 ![Metric By Threshold][score_thresh]
 
-### Calibration Curve
+### Calibration Curve (Before Postprocessing)
 ![Calibration Curve][calibration]
 
-### Output Distribution
+### Output Distribution (After Postprocessing)
 ![Output Distribution][outdist]
 
 

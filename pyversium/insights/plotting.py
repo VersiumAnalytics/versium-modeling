@@ -186,8 +186,11 @@ def _plot_importances(importances_dict, feature_names, max_features=10, figure=N
         # Convert from wide to long format
         imp_plot = pd.melt(imp_plot, var_name="feature_name", value_name="importance")
         avg_importances = imp_plot.groupby('feature_name').mean().sort_values(by="importance")
-        palette_map = pd.qcut(avg_importances['importance'], len(palette), labels=False, duplicates="drop")
-        colors = np.array(palette)[palette_map.values]
+        if len(avg_importances) > 1:
+            palette_map = pd.qcut(avg_importances['importance'], len(palette), labels=False, duplicates="drop")
+            colors = np.array(palette)[palette_map.values]
+        else:
+            colors = np.array([palette[0]])
         # Add mean importance as hue
         imp_plot = imp_plot.merge(imp_plot.groupby('feature_name').mean(), left_on='feature_name', right_index=True, suffixes=("", "_hue"))
         imp_plot['importance_hue'] = pd.qcut(imp_plot['importance_hue'], len(palette), labels=False, duplicates="drop")

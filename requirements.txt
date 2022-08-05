@@ -1,7 +1,7 @@
 aiohttp==3.8.1
 jinja2==3.1.2
 markdown==3.3.7
-pandas==1.4.2
+pandas==1.4.3
 scikit-learn==1.1.0
 scikit-optimize==0.9.0
 seaborn==0.11.2

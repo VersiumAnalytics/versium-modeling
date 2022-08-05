@@ -20,82 +20,6 @@ P = ParamSpec('P')
 DataFieldNamesTuple = Tuple[pd.DataFrame | Generator[pd.DataFrame, None, None], list[str] | None]
 
 
-def get_header(filepath_or_buffer: str, delimiter: str, quotechar: str = '"', dialect: str = 'unix', encoding: str = 'utf-8-sig') -> list[str]:
-    """Get the column headers of a file.
-
-    Assumes that the file has a header row as its first row.
-
-    Parameters
-    ----------
-    filepath_or_buffer : str
-        Path to the file.
-
-    delimiter : str
-        Character used to separate fields of the file.
-
-    quotechar : str
-        Character used for quoting in the file.
-
-    dialect : str
-        CSV dialect defines a set of CSV formatting properties for a system, platform, or application. Determines
-        default formatting parameters such as quote characters and line terminators.
-
-    encoding : str
-        Character encoding schema to use when reading the file.
-
-    Returns
-    ------
-    headers : list[str]
-        Headers of the given file.
-    """
-
-    def _get_header(enc):
-        with open(filepath_or_buffer, newline='', encoding=enc, mode='r+') as csvfile:
-            reader = csv.reader(csvfile, delimiter=delimiter, quotechar=quotechar, dialect=dialect)
-            header = next(reader)
-            logger.debug(f"Header is: {header}")
-            return header
-
-    try:
-        return _get_header(encoding)
-    except UnicodeDecodeError:
-        return _get_header('latin-1')
-
-
-def read_file_or_buffer(filepath_or_buffer: str, delimiter: str,
-                        safe: bool = False, **kwargs: P.kwargs) -> pd.DataFrame | Generator[pd.DataFrame, None, None]:
-    """Reads a file into a pandas dataframe.
-
-    Parameters
-    -------
-    filepath_or_buffer : str
-        filepath_or_buffer to read in.
-
-    delimiter : str
-        Delimiter to use.
-
-    safe : bool
-        Whether to use a safer but slower read for files with inconsistent encoding.
-
-    kwargs : kwargs
-        Additional keyword arguments to pass to pandas.read_table()
-
-    Returns
-    -------
-    data : pandas.DataFrame
-    """
-    if not safe:
-        return pd.read_csv(filepath_or_buffer, **kwargs)
-
-    chunksize = kwargs.pop('chunksize', None)
-
-    if chunksize is not None:
-        return _chunked_read(filepath_or_buffer, delimiter, chunksize, **kwargs)
-
-    else:
-        return _decode_stream(filepath_or_buffer, delimiter, **kwargs)
-
-
 def _decode_stream(filepath_or_buffer: str, delimiter: str, **kwargs: P.kwargs) -> pd.DataFrame:
     """Attempts to character decode a file using UTF-8, falling back to latin-1 if it fails.
 
@@ -172,6 +96,82 @@ def _chunked_read(filepath_or_buffer: str, delimiter: str,
         yield data
         n += chunksize
         total_rows += chunksize
+
+
+def get_header(filepath_or_buffer: str, delimiter: str, quotechar: str = '"', dialect: str = 'unix', encoding: str = 'utf-8-sig') -> list[str]:
+    """Get the column headers of a file.
+
+    Assumes that the file has a header row as its first row.
+
+    Parameters
+    ----------
+    filepath_or_buffer : str
+        Path to the file.
+
+    delimiter : str
+        Character used to separate fields of the file.
+
+    quotechar : str
+        Character used for quoting in the file.
+
+    dialect : str
+        CSV dialect defines a set of CSV formatting properties for a system, platform, or application. Determines
+        default formatting parameters such as quote characters and line terminators.
+
+    encoding : str
+        Character encoding schema to use when reading the file.
+
+    Returns
+    ------
+    headers : list[str]
+        Headers of the given file.
+    """
+
+    def _get_header(enc):
+        with open(filepath_or_buffer, newline='', encoding=enc, mode='r+') as csvfile:
+            reader = csv.reader(csvfile, delimiter=delimiter, quotechar=quotechar, dialect=dialect)
+            header = next(reader)
+            logger.debug(f"Header is: {header}")
+            return header
+
+    try:
+        return _get_header(encoding)
+    except UnicodeDecodeError:
+        return _get_header('latin-1')
+
+
+def read_file_or_buffer(filepath_or_buffer: str, delimiter: str,
+                        safe: bool = False, **kwargs: P.kwargs) -> pd.DataFrame | Generator[pd.DataFrame, None, None]:
+    """Reads a file into a pandas dataframe.
+
+    Parameters
+    -------
+    filepath_or_buffer : str
+        filepath_or_buffer to read in.
+
+    delimiter : str
+        Delimiter to use.
+
+    safe : bool
+        Whether to use a safer but slower read for files with inconsistent encoding.
+
+    kwargs : kwargs
+        Additional keyword arguments to pass to pandas.read_table()
+
+    Returns
+    -------
+    data : pandas.DataFrame
+    """
+    if not safe:
+        return pd.read_csv(filepath_or_buffer, sep=delimiter, **kwargs)
+
+    chunksize = kwargs.pop('chunksize', None)
+
+    if chunksize is not None:
+        return _chunked_read(filepath_or_buffer, delimiter, chunksize, **kwargs)
+
+    else:
+        return _decode_stream(filepath_or_buffer, delimiter, **kwargs)
 
 
 def balance_class_fillrates(data, label_column: str, label_positive_value: Any, balance_fields: list[str], missing_values: list[str] = STR_NA_VALUES,
@@ -446,26 +446,6 @@ class Collector:
         data = map_if_iter(self.append, data)
 
         return data, field_names
-
-    @staticmethod
-    def _read_buffer(buffer: io.TextIOBase,
-                     delimiter: str = '\t',
-                     header: Optional[list | tuple | str] = None,
-                     chunksize: Optional[int] = None,
-                     chunkstart: Optional[int] = None,
-                     safe: bool = False,
-                     na_values: list[str] = ()) -> DataFieldNamesTuple:
-        pass
-
-    @staticmethod
-    def _read_filepath(filepath_or_buffer: io.TextIOBase,
-                     delimiter: str = '\t',
-                     header: Optional[list | tuple | str] = None,
-                     chunksize: Optional[int] = None,
-                     chunkstart: Optional[int] = None,
-                     safe: bool = False,
-                     na_values: list[str] = ()) -> DataFieldNamesTuple:
-        pass
 
     @staticmethod
     def read(filepath_or_buffer: str | io.TextIOBase | list[str | io.TextIOBase],

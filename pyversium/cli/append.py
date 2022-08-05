@@ -153,17 +153,17 @@ def main(args=None):
     input_file = os.path.abspath(input_file)
     output_file = config.pop('output', None)
 
-    delimiter = config.pop('delimiter', '\t')
-    header = config.pop('header', None)
-    chunksize = config.pop('chunksize')
-    chunkstart = config.get('chunkstart', 0)
+    delimiter = config["delimiter"]
+    header = config["header"]
+    chunksize = config["chunksize"]
+    chunkstart = config["chunkstart"]
 
     train = config.get("cmd", "") == "train"
 
     collector = collector_factory(config)
 
     output_gen = get_output_generator(output_file, input_file=input_file, chunkstart=chunkstart, chunksize=chunksize, truncate=True,
-                                      has_header=True)
+                                      delimiter=delimiter, has_header=True)
 
     logger.info("Begin collecting data.")
     data, field_names = collector.collect(input_file, delimiter=delimiter, has_label=train, chunksize=chunksize, chunkstart=chunkstart,

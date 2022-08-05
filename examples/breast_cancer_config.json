@@ -1,0 +1,16 @@
+{
+  "model_dir": "breast_cancer_model",
+  "label": "target",
+  "label_positive_value": "1",
+  "log_level": "INFO",
+
+  "train": {
+    "input": "breast_cancer_train.tsv"
+  },
+
+  "score": {
+    "input": "breast_cancer_test.tsv",
+    "output": "breast_cancer_test_scores.tsv",
+    "include_fields": ["target"]
+  }
+}

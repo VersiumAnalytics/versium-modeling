@@ -32,3 +32,7 @@ class QuantilePostprocessor(QuantileTransformer, BasePostprocessor):
     def transform(self, X: ArrayLike, y: Optional[ArrayLike] = None):
         X = super().transform(X)
         return np.round(X*100, 0)
+
+    def __repr__(self, N_CHAR_MAX=700):  # Include N_CHAR_MAX to match signature of QuantileTransformer
+        return f"{self.__class__.__name__}(n_quantiles={self.n_quantiles}, output_distribution={self.output_distribution}," \
+               f" subsample={self.subsample}, random_state={self.random_state})"

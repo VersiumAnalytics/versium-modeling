@@ -1,13 +1,12 @@
+import csv
 import glob
 import io
-import itertools
 import json
 import logging
 import os
 import re
-import sys
-from abc import ABC, abstractmethod
 from typing import Iterator, Tuple
+
 import numpy as np
 import pkg_resources
 
@@ -46,20 +45,44 @@ def format_output_file(output_file: str, input_file: str) -> (str, int):
     return output_file, start_idx
 
 
-def _truncate_stream(stream: io.IOBase, num_lines: int):
+def _truncate_stream(stream: io.IOBase, num_lines: int, delimiter='\t', quotechar='"'):
     stream.seek(0)
-    for i in range(num_lines):
+    #csv_reader = csv.reader(stream, delimiter=delimiter, dialect="excel", quotechar=quotechar)
+    logger.debug(f"delimiter is {delimiter}")
+    csv_reader = csv.reader(stream, delimiter=delimiter)
+    i = 0
+    byte_count = 0
+    while i < num_lines:
+        temp = next(csv_reader)
+        print(temp)
+        if temp:
+            byte_count += len(delimiter.join(temp).encode('latin-1'))
+        i += 1
+    read_lines = csv_reader.line_num
+    logger.debug(f"Number of lines read: {read_lines}")
+    logger.debug(f"Byte count is: {byte_count}")
+    stream.flush()
+    stream.seek(0)
+
+    logger.debug(f"Stream tell is {stream.tell()}")
+    stream.truncate(byte_count)
+    return
+    i = 0
+    while i < read_lines:
         stream.readline()
-    stream.truncate(stream.tell())
+        i += 1
+    logger.debug(f"Stream tell is {stream.tell()}")
+    stream.flush()
+    stream.truncate(byte_count)
     logger.debug(f"Truncated to {stream.tell()} bytes")
     stream.flush()
 
 
-def truncate_stream(file: str | io.IOBase, num_lines: int):
+def truncate_stream(file: str | io.IOBase, num_lines: int, delimiter: str = "\t", quotechar: str = '"'):
     if isinstance(file, str):
         logger.debug(f"Truncating {file} to {num_lines} lines.")
-        with open(file, 'r+') as f:
-            _truncate_stream(f, num_lines)
+        with open(file, 'a+', newline='') as f:
+            _truncate_stream(f, num_lines, delimiter, quotechar)
     # If we have an IO stream, only truncate if seek operations are allowed and the stream is not connected to a terminal/tty
     elif isinstance(file, io.IOBase) and file.seekable() and file.writable() and not file.isatty():
         file.seek(0)
@@ -122,7 +145,7 @@ class ModelPaths:
 
         # Metadata
         try:
-            self.__version__ = pkg_resources.get_distribution('analytics').version
+            self.__version__ = pkg_resources.get_distribution('pyversium').version
         except pkg_resources.DistributionNotFound:
             self.__version__ = None
 

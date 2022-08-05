@@ -17,6 +17,7 @@ def get_output_generator(output: str | io.IOBase | None,
                          chunksize: int | None = None,
                          chunkstart: int = 0,
                          truncate: bool = False,
+                         delimiter: str = "\t",
                          has_header: bool = True) -> PairedOutputModeIteratorType:
     """Helper function to assist with outputting chunks of data either through Python IO objects or Pandas.to_csv method. Constructs an
     iterator that returns tuples of (output, filemode) where `output` is a stream or string path to a file, and `filemode` is either 'w' for
@@ -42,6 +43,7 @@ def get_output_generator(output: str | io.IOBase | None,
     chunksize : The size of a chunk in number of lines
     chunkstart : Which chunk to begin iterating from.
     truncate : Whether to truncate the file after the chunkstart point.
+    delimiter : Field delimiter
     has_header : Whether the stream or file contains a header. Used in conjunction with chunkstart and chunksize to determine where
         in a file to truncate data.
 
@@ -59,8 +61,8 @@ def get_output_generator(output: str | io.IOBase | None,
         # output file, or possibly even delete half of a record.
         if not output_gen.is_multi_file and chunksize and chunkstart and truncate:
             raise IOError(f"Cannot resume from chunk {chunkstart} when outputting to a single file.")
-            # has_header = 1 if has_header else 0
-            # truncate_stream(output_gen.current_output, chunksize * chunkstart + has_header)  # +1 to include header:
+            #has_header = 1 if has_header else 0
+            #truncate_stream(output_gen.current_output, chunksize * chunkstart + has_header, delimiter=delimiter)  # +1 to include header:
     else:
         if output is None:
             logger.debug("No stream provided. Setting stream to stdout.")

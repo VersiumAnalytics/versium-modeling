@@ -128,6 +128,8 @@ class BinaryModelInsights:
     def estimator_pipeline_diagram_html(self):
         if isinstance(self.model.estimator, Pipeline):
             return estimator_html_repr(self.model.estimator)
+        elif self.model.estimator is not None:
+            return repr(self.model.estimator)
         else:
             return None
 
@@ -135,6 +137,8 @@ class BinaryModelInsights:
     def postprocessor_pipeline_diagram_html(self):
         if isinstance(self.model.postprocessor, Pipeline):
             return estimator_html_repr(self.model.postprocessor)
+        elif self.model.postprocessor is not None:
+            return repr(self.model.postprocessor)
         else:
             return None
 
