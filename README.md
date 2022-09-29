@@ -1,5 +1,5 @@
 # About
-pyVersium is a Python library and set of command line tools for the creation of lead scoring pipelines. The toolset
+versium-modeling is a Python library and set of command line tools for the creation of lead scoring pipelines. The toolset
 simplifies the process of appending data across multiple APIs and then building lead scoring models that leverage both
 the original and appended data points.
 
@@ -96,8 +96,8 @@ option, try the [Binary Download](#binary-download) method.
 Navigate to the desired working directory and clone the git repo.
 `cd` into the newly cloned directory.
 ```bash
-git clone https://github.com/VersiumAnalytics/pyVersium.git
-cd pyVersium
+git clone https://github.com/VersiumAnalytics/versium-modeling.git
+cd versium-modeling
 ```
 
 ## Setting Up An Environment
@@ -109,15 +109,15 @@ installation method.
 Create a new Conda environment with Python 3.10 or greater. You can name this environment whatever you want with 
 the `--name` flag.
 ```bash
-conda create --name pyVersium python=3.10
+conda create --name versium-modeling python=3.10
 ```
 Now activate the environment and install the package.
 ```bash
-conda activate pyVersium
+conda activate versium-modeling
 pip install --upgrade pip
 pip install .
 ```
-You will need to activate your Conda environment anytime you want to run the pyVersium tools. You should only need to
+You will need to activate your Conda environment anytime you want to run the versium-modeling tools. You should only need to
 activate the environment once per shell session unless you have changed to a different Conda environment.
 
 When you are finished running your jobs, you can deactivate the environment by running:
@@ -176,10 +176,10 @@ of an FNA of a breast mass. These features describe the characteristics of cell 
 ### Activate the Environment
 Begin by activating your environment. This will depend on the name you gave during environment creation:
 ```bash
-conda activate pyVersium
+conda activate versium-modeling
 ```
 
-You should see something like `(pyVersium)` at the beginning of the current line in the shell. Check that pyVersium has
+You should see something like `(versium-modeling)` at the beginning of the current line in the shell. Check that versium-modeling has
 been installed and that the `model` command is on your path by running:
 
 ```bash
@@ -412,7 +412,7 @@ set to 3 the wait times for each attempt will be 0, 3, 6, 9, etc.
 * __post_append_prefix__: Prefixes all fields returned by the API with a string. 
 * __post_append_suffix__: Suffixes all fields returned by the API with a string.
 * __response_handler__: Name of function to call to handle the response from the API. Custom response handler functions
-can be added to *pyversium.collect.response_handlers* to extract data from the response.
+can be added to *versium-modeling.collect.response_handlers* to extract data from the response.
 
 
 ### Output Files

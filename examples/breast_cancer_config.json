@@ -3,6 +3,8 @@
   "label": "target",
   "label_positive_value": "1",
   "log_level": "INFO",
+  "delimiter": "\t",
+  "random_state": 12345,
 
   "train": {
     "input": "breast_cancer_train.tsv"
