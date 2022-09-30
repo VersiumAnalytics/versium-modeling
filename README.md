@@ -412,7 +412,7 @@ set to 3 the wait times for each attempt will be 0, 3, 6, 9, etc.
 * __post_append_prefix__: Prefixes all fields returned by the API with a string. 
 * __post_append_suffix__: Suffixes all fields returned by the API with a string.
 * __response_handler__: Name of function to call to handle the response from the API. Custom response handler functions
-can be added to *versium-modeling.collect.response_handlers* to extract data from the response.
+can be added to *vmod.collect.response_handlers* to extract data from the response.
 
 
 ### Output Files

@@ -1,11 +1,13 @@
 """_io.py: IO helper functions for CLI tools."""
 # TODO check for StopIteration when chunksize * chunkstart is greater than file size
 import io
-import logging
-from typing import Iterator, Tuple, Literal
-import sys
 import itertools
-from ..utils.io import OutputFileGenerator, truncate_stream
+import logging
+import os
+import sys
+from typing import Iterator, Tuple, Literal
+
+from ..utils.io import OutputFileGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +62,9 @@ def get_output_generator(output: str | io.IOBase | None,
         # Right now it reads to the specified line number, calculates the number of bytes, and truncates the file. When there are multi-line
         # records, then the number of lines does not equal the number of records. This will cause us to truncate too many records in the
         # output file, or possibly even delete half of a record.
-        if not output_gen.is_multi_file and chunksize and chunkstart and truncate:
-            raise IOError(f"Cannot resume from chunk {chunkstart} when outputting to a single file.")
+        if not output_gen.is_multi_file and chunksize and chunkstart and os.path.exists(output_gen.current_output):
+            raise IOError(f"Cannot resume from chunk {chunkstart} when outputting to a single file that already exists: "
+                          f"{output_gen.current_output}.")
             # has_header = 1 if has_header else 0
             # truncate_stream(output_gen.current_output, chunksize * chunkstart + has_header, delimiter=delimiter)  # +1 to include header:
     else:

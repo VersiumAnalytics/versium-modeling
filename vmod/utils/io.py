@@ -38,7 +38,7 @@ def format_output_file(output_file: str, input_file: str) -> (str, int):
         captured_format_patterns = captured_format_patterns[0]
         # If we have 3 capture groups then the 2nd one signifies the start_index. Need to store this and remove it from the string.
         if len(captured_format_patterns) == 3:
-            start_idx = int(captured_format_patterns[1])
+            start_idx = int(captured_format_patterns[1].strip() or '0')
 
             # remove the start_index portion of the format string by replacing the entire thing with just capture groups 1 and 3
             output_file = format_capture_regex.sub(r'\1\3', output_file)

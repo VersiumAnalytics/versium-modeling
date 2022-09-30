@@ -8,7 +8,7 @@ import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.compose import ColumnTransformer, make_column_selector
 from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.model_selection import cross_validate
+from sklearn.model_selection import cross_validate, BaseCrossValidator
 from sklearn.preprocessing import OrdinalEncoder
 from skopt import gp_minimize
 from skopt.space import Integer, Real
@@ -27,9 +27,55 @@ MAX_NUM_RANDOM_STARTS = 10
 
 
 class CalibratedHGBCEstimatorFactory(BaseEstimatorFactory):
+    """
+    Factory class for creating and optimizing histogram gradient boosting classifier pipelines with calibrated probability scores.
 
-    def __init__(self, cv=5, scoring='roc_auc', n_optimization_rounds=20, logging_callback=None, cachedir: Optional[str] = None,
-                 verbose_feature_names_out: bool = False, estimator_params=None):
+    Parameters
+    ----------
+    cv : BaseCrossValidator or int
+        Number of cross validation folds to use for calibration and optimization. Alternatively, a scikit-learn cross validator.
+
+    scoring : str
+        Scoring metric to use for optimization. Uses scikit-learn scoring metric strings. For list of all possible scoring metrics see
+        https://scikit-learn.org/stable/modules/model_evaluation.html
+
+    n_optimization_rounds : int
+        Number of different hyperparameter combinations to try when optimizing.
+
+    cachedir : str
+        Directory to use for caching column transformations. This helps speed up optimization by removing the need to recalculate column
+        transformations such as categorical encoding for every round of hyperparameter tuning.
+
+    verbose_feature_names : bool
+        If true, all feature names are prefixed with the column transformer that generated them.
+
+    estimator_params : dict[str, Any]
+        Dictionary of parameter-name, value pairs to set the estimator to. Leave this as None unless you know the structure of the pipeline.
+        Since the pipeline produced by this factory is a composition of nested estimators, parameters need to be accessed via the dedicated
+        <estimator>__<parameter> syntax for nested params used by scikit-learn. For example, the Pipeline generated is composed of
+        steps: `X_transformer`, `estimator`. The `estimator` step of the pipeline is a CalibratedClassifier with a HistGradientBoostingClassifier
+        as its `base_estimator`. Thus, if you want to change the learning rate of the gradient boosting classifier, you need to specify the
+        parameter as `estimator__base_estimator__learning_rate`. Likewise, if you want to change the dtype of the categorical encoder, you
+        need to specify the parameter as `X_transformer__categorical__dtype`. For the structure of the generated pipeline, see the __call__
+        method of this class.
+        For further help see https://scikit-learn.org/stable/modules/grid_search.html#composite-estimators-and-parameter-spaces.
+    """
+
+    cv: int
+    scoring: str
+    n_optimization_rounds: int
+    cachedir: Optional[str]
+    verbose_feature_names: bool
+    estimator_params: dict[str, Any]
+
+    def __init__(self,
+                 cv: BaseCrossValidator | int = 5,
+                 scoring: str = 'roc_auc',
+                 n_optimization_rounds: int = 20,
+                 cachedir: Optional[str] = None,
+                 verbose_feature_names: bool = False,
+                 estimator_params: Optional[dict[str, Any]] = None):
+
         super().__init__()
         self.cachedir = cachedir
         self.scoring = scoring
@@ -37,13 +83,12 @@ class CalibratedHGBCEstimatorFactory(BaseEstimatorFactory):
         self.n_optimization_rounds = n_optimization_rounds
         self.cv = cv
 
-        self.verbose_feature_names = verbose_feature_names_out
-        self.logging_callback = logging_callback
+        self.verbose_feature_names = verbose_feature_names
         self.estimator_params = DEFAULT_PARAMS if estimator_params is None else estimator_params
 
     def __call__(self, feature_selector: Optional[BaseFeatureSelector] = None):
-        cat_selector = make_column_selector(
-            dtype_include=object) if feature_selector is None else feature_selector.get_categorical_features()
+
+        cat_selector = make_column_selector(dtype_include=object) if feature_selector is None else feature_selector.get_categorical_features()
         num_selector = make_column_selector(dtype_include=float) if feature_selector is None else feature_selector.get_numeric_features()
 
         X_trans = ColumnTransformer([('categorical', OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=np.nan),
@@ -89,12 +134,6 @@ class CalibratedHGBCEstimatorFactory(BaseEstimatorFactory):
         logger.info(msg)
         return -1 * test_score
 
-    def log_dict(self, message_dict: dict):
-        if self.logging_callback is None:
-            return
-
-        self.logging_callback(message_dict)
-
     def fit(self, X: pd.DataFrame, y: pd.Series, feature_selector: BaseFeatureSelector):
         logger.info(f"Begin fitting estimator.")
         model = self(feature_selector)
@@ -119,9 +158,7 @@ class CalibratedHGBCEstimatorFactory(BaseEstimatorFactory):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state.pop('logging_callback')
         return state
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self.logging_callback = None

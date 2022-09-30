@@ -90,6 +90,18 @@ def get_parser(defaults: dict | None = None):
 
 
 def collector_factory(config: dict) -> Collector:
+    """Creates a Collector object from a dictionary of configs.
+
+    Parameters
+    -------
+    config : dict
+        dictionary of config options. The keys should correspond to the init parameters of the Collector class. Additionally, the
+        'query_configs' key is recognized as list of parameter dictionaries for QueryClient objects.
+
+    Returns
+    -------
+    Collector
+    """
     api_queries = []
     query_configs = config.pop('query_configs', [])
     for q_cfg in query_configs:

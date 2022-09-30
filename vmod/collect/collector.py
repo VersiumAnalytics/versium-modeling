@@ -446,8 +446,7 @@ class Collector:
                     if b not in data:
                         raise ValueError(f'Column {b} was selected for balancing but was not found in the data.')
 
-                data = balance_class_fillrates(data, self.label, self.label_positive_value, self.balance_fields,
-                                               missing_values=self.missing_values, balance_diff_tol=0.1)
+                data = balance_class_fillrates(data, self.label, self.label_positive_value, self.balance_fields, balance_diff_tol=0.1)
 
             if self.correct_label_field:
                 data = map_if_iter(self._booleanize_label, data)

@@ -6,7 +6,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-from sklearn.experimental import enable_halving_search_cv  # noqa
 from sklearn.model_selection import BaseCrossValidator
 from sklearn.model_selection import train_test_split, StratifiedKFold
 
@@ -47,7 +46,6 @@ class BinaryModelFactory:
     cv: BaseCrossValidator
     scoring: Optional[list[str | Callable]]
     random_state: Optional[int]
-    model_report: dict
 
     def __init__(self,
                  feature_selector: Optional[BaseFeatureSelector] = None,
@@ -75,9 +73,7 @@ class BinaryModelFactory:
 
         self.test_size = test_size
 
-        self.model_report = {}
-
-        self.estimator_factory = estimator_factory or CalibratedHGBCEstimatorFactory(cv=self.cv, scoring=scoring, logging_callback=None)
+        self.estimator_factory = estimator_factory or CalibratedHGBCEstimatorFactory(cv=self.cv, scoring=scoring)
 
     @property
     def model(self) -> Optional[BinaryModel]:
@@ -112,9 +108,6 @@ class BinaryModelFactory:
         return self.model is not None
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, optimize: bool) -> (pd.DataFrame, pd.Series):
-        # Reset _model report
-        self.model_report = {}
-
         logger.info(f"Splitting data into train and test sets")
         X_train, X_test, y_train, y_test = self.train_test_split(X, y)
         logger.info(f"Train data has {len(X_train)} records and Test data has {len(X_test)} records.")
@@ -124,10 +117,8 @@ class BinaryModelFactory:
         logger.info(f"Finished fitting {self._model.feature_selector.__class__.__name__}.")
 
         self.estimator_factory.set_params(cv=self.cv,
-                                          #random_state=self.random_state,
                                           scoring=self.scoring,
-                                          n_optimization_rounds=self.n_optimization_rounds,
-                                          logging_callback=self.create_logging_callback('estimator_factory'))
+                                          n_optimization_rounds=self.n_optimization_rounds)
 
         if optimize and self.n_optimization_rounds:
             logger.info(f"Begin optimizing estimator to training data using {self.estimator_factory.__class__.__name__}")
@@ -162,19 +153,10 @@ class BinaryModelFactory:
         return train_test_split(X, y, test_size=self.test_size, stratify=y,
                                 random_state=self.random_state)
 
-    def create_logging_callback(self, key: str) -> Callable:
-        def log_message_dict(message_dict: dict):
-            if key not in self.model_report:
-                self.model_report[key] = {}
-            self.model_report[key].update(message_dict)
-
-        return log_message_dict
-
     def save(self, model_paths: ModelPaths):
         metadata = self.__getstate__()
         model = metadata.pop("_model")
 
-        model_report = metadata.pop("model_report")
         estimator_factory = metadata.pop("estimator_factory")
 
         model.save(model_paths)
@@ -196,7 +178,6 @@ class BinaryModelFactory:
 
         with open(model_paths.estimator_factory, 'rb') as f:
             self.estimator_factory = pickle.load(f)
-            self.estimator_factory.set_params(logging_callback=self.create_logging_callback('estimator_factory'))
 
         return self
 
