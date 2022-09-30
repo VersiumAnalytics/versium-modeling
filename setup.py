@@ -21,7 +21,7 @@ class CleanCommand(Clean):
             print('Will remove generated .c files')
         if os.path.exists('build'):
             shutil.rmtree('build')
-        for dirpath, dirnames, filenames in os.walk('pyversium'):
+        for dirpath, dirnames, filenames in os.walk('vmod'):
             for filename in filenames:
                 if any(filename.endswith(suffix) for suffix in
                        (".so", ".pyd", ".dll", ".pyc")):
@@ -48,18 +48,18 @@ def setup_package():
     cmdclass = {'clean': CleanCommand}
 
     setup(
-            name='pyversium',
+            name='vmod',
             version='0.1.0',
             description='Python tools for model creation and data appends',
             long_description=long_description,
             url='https://github.com/VersiumAnalytics/analytics/',
             author='Versium Analytics, Inc.',
-            author_email='analytics@versium.com',
+            author_email='opensource@versium.com',
             classifiers=[
                 'Topic :: Scientific/Engineering',
                 'Topic :: Scientific/Engineering :: Artificial Intelligence',
                 'Topic :: Scientific/Engineering :: Information Analysis'
-                'Programming Language :: Python :: 3.9',
+                'Programming Language :: Python :: 3.10',
             ],
             python_requires='~=3.10',
             zip_safe=False,
@@ -67,9 +67,9 @@ def setup_package():
             package_data={'': ['*.json', '*.j2', '*/*.json', '*/*.j2']},
             install_requires=required_packages,
             entry_points={
-                'console_scripts': ['append = pyversium.cli.append:main',
-                                    'model = pyversium.cli.model:main']},
-            test_suite='tests',
+                'console_scripts': ['append = vmod.cli.append:main',
+                                    'model = vmod.cli.model:main']},
+            #test_suite='tests',
             #tests_require=['testfixtures==6.4.3','pytest==4.1.1', 'nose==1.3.7'],
             cmdclass=cmdclass
     )
