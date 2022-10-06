@@ -170,7 +170,7 @@ deactivate
 This example will guide you through the process of model training and scoring using the CLI and a config file. A dataset
 and a config file have been included in this project's ___examples___ directory. The dataset we will be using is the 
 [Breast Cancer Wisconsin (Diagnostic) Data](https://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+(Diagnostic)).
-We will be predicting the beast cancer diagnosis (malignant or benign) given features extracted from a digitized image
+We will be predicting the breast cancer diagnosis (malignant or benign) given features extracted from a digitized image
 of an FNA of a breast mass. These features describe the characteristics of cell nuclei present in the image.
 
 ### Activate the Environment
